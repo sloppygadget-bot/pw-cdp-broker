@@ -1,0 +1,44 @@
+project:
+  name: pw-cdp-broker
+  root: .
+  primary_languages:
+    - javascript
+
+paths:
+  include:
+    - bin
+    - src
+    - test
+    - README.md
+    - package.json
+  exclude:
+    - node_modules
+    - coverage
+    - .git
+    - .kn
+
+kb:
+  root: .kn
+  raw: .kn/raw
+  wiki: .kn/wiki
+  fs: .kn/fs
+  audits: .kn/audits
+  outputs: .kn/outputs
+
+scan:
+  javascript:
+    enabled: true
+    module_patterns:
+      - "src/**/*.js"
+      - "bin/**/*.js"
+      - "test/**/*.js"
+
+git:
+  update_mode: incremental
+  default_base: HEAD
+  note: "Repository has no commits at initial KB generation."
+
+quality:
+  require_sources: true
+  require_test_links_for_fs: true
+  stale_after_days: 30
