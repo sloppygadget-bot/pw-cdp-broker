@@ -74,6 +74,16 @@ export function rewriteDebuggerUrls(value, brokerBaseUrl) {
 }
 
 async function handleControlRequest({ req, res, browserManager }) {
+  if (req.url === '/_broker/instructions' && req.method === 'GET') {
+    writeText(res, 200, 'text/markdown; charset=utf-8', brokerInstructions());
+    return;
+  }
+
+  if (req.url === '/_broker/client.js' && req.method === 'GET') {
+    writeText(res, 200, 'text/javascript; charset=utf-8', brokerClientSource());
+    return;
+  }
+
   if (req.url === '/_broker/status' && req.method === 'GET') {
     writeJson(res, 200, {
       ok: true,
@@ -321,10 +331,109 @@ function writeJson(res, statusCode, payload) {
   res.end(body);
 }
 
+function writeText(res, statusCode, contentType, text) {
+  const body = Buffer.from(text);
+  res.writeHead(statusCode, {
+    'content-type': contentType,
+    'content-length': body.length,
+  });
+  res.end(body);
+}
+
 function writeError(res, error) {
   const statusCode = error?.statusCode || 502;
   writeJson(res, statusCode, {
     ok: false,
     error: error?.message || http.STATUS_CODES[statusCode] || 'Bad Gateway',
   });
+}
+
+function brokerInstructions() {
+  return `# pw-cdp-broker remote Playwright instructions
+
+This broker starts local Chrome on demand and returns the CDP URL that remote
+Playwright must use.
+
+1. Start Chrome through the broker:
+
+\`\`\`js
+const start = await fetch('http://127.0.0.1:18080/_broker/start', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({
+    profile: 'work-okta',
+    proxyServer: 'http://127.0.0.1:18899',
+    ignoreSslErrors: true,
+  }),
+}).then((response) => response.json());
+\`\`\`
+
+2. Connect Playwright to the returned instance URL:
+
+\`\`\`js
+const browser = await chromium.connectOverCDP(start.cdpUrl);
+\`\`\`
+
+3. Optionally stop the instance when finished:
+
+\`\`\`js
+await fetch('http://127.0.0.1:18080/_broker/stop', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ instanceId: start.instanceId }),
+});
+\`\`\`
+
+Helper source is available from:
+
+\`\`\`text
+GET /_broker/client.js
+\`\`\`
+`;
+}
+
+function brokerClientSource() {
+  return `import { chromium } from 'playwright';
+
+export async function connectViaBroker({
+  brokerUrl = 'http://127.0.0.1:18080',
+  profile,
+  proxyServer,
+  proxyBypassList,
+  ignoreSslErrors,
+} = {}) {
+  const response = await fetch(\`\${brokerUrl}/_broker/start\`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      profile,
+      proxyServer,
+      proxyBypassList,
+      ignoreSslErrors,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(\`Broker start failed: \${response.status} \${await response.text()}\`);
+  }
+
+  const instance = await response.json();
+  const browser = await chromium.connectOverCDP(instance.cdpUrl);
+
+  return {
+    browser,
+    instance,
+    stop: async () => {
+      const stopResponse = await fetch(\`\${brokerUrl}/_broker/stop\`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ instanceId: instance.instanceId }),
+      });
+      if (!stopResponse.ok) {
+        throw new Error(\`Broker stop failed: \${stopResponse.status} \${await stopResponse.text()}\`);
+      }
+    },
+  };
+}
+`;
 }

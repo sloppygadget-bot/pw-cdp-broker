@@ -32,13 +32,15 @@ sources:
 | `test/server.test.js` | `rewrites debugger urls under an instance-scoped broker path` | `src/server.js` | Verifies instance path is preserved in rewritten WebSocket URLs. |
 | `test/server.test.js` | `start control route returns an instance-scoped CDP URL` | `src/server.js` | Verifies `POST /_broker/start` response shape and manager delegation. |
 | `test/server.test.js` | `returns 503 for CDP discovery before Chrome is started` | `src/server.js` | Verifies standby discovery failure mode. |
+| `test/server.test.js` | `serves remote Playwright instructions over the broker endpoint` | `src/server.js` | Verifies `/_broker/instructions` returns Markdown integration instructions. |
+| `test/server.test.js` | `serves a copyable Playwright broker client helper` | `src/server.js` | Verifies `/_broker/client.js` returns helper source. |
 
 Latest observed result:
 
 ```text
 npm test
-tests 16
-pass 16
+tests 18
+pass 18
 fail 0
 ```
 

@@ -28,6 +28,18 @@
 - Notes:
   - Initial implementation is single-instance but uses instance-scoped URLs so the contract can generalize to multi-instance later.
 
+## 2026-06-16 00:15 UTC - expose remote agent instructions
+
+- Trigger: User clarified the remote Playwright workspace cannot access this broker repository.
+- Scope: Broker-served integration instructions and copyable helper source.
+- Raw updated:
+  - `.kn/raw/codebase/APIs/http-route-map.md`
+  - `.kn/raw/codebase/tests/unit-test-inventory.md`
+- Tests updated:
+  - `test/server.test.js`
+- Notes:
+  - Remote agents can read `GET /_broker/instructions` or `GET /_broker/client.js` through the same broker URL they use for CDP.
+
 ## 2026-06-15 00:00 UTC - initialize KB after broker implementation
 
 - Trigger: User requested broker implementation and `.kn/` wiki maintenance.

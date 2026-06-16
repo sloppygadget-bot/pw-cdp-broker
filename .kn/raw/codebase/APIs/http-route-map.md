@@ -20,6 +20,8 @@ instance; instance-scoped paths route by `instanceId`.
 |---|---|---|---|
 | `GET` | `/` | `createBrokerServer` | Returns JSON health/status. |
 | `GET` | `/healthz` | `createBrokerServer` | Returns JSON health/status. |
+| `GET` | `/_broker/instructions` | `handleControlRequest` | Returns Markdown instructions for remote Playwright agents. |
+| `GET` | `/_broker/client.js` | `handleControlRequest` | Returns copyable JavaScript helper source for remote Playwright clients. |
 | `GET` | `/_broker/status` | `handleControlRequest` | Returns running state and active instance metadata. |
 | `POST` | `/_broker/start` | `handleControlRequest` | Starts Chrome through `browserManager.start()` and returns `{ instanceId, cdpUrl }`. |
 | `POST` | `/_broker/stop` | `handleControlRequest` | Stops the active Chrome instance, optionally matching `instanceId`. |

@@ -95,6 +95,14 @@ export async function connectViaBroker({
 }
 ```
 
+If the remote workspace cannot read this repository, fetch the same instructions
+from the running broker:
+
+```bash
+curl http://127.0.0.1:18080/_broker/instructions
+curl http://127.0.0.1:18080/_broker/client.js
+```
+
 ## SSH Reverse Tunnel
 
 If the remote host cannot reach your laptop directly, create a reverse tunnel

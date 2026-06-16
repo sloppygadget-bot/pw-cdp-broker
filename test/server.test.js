@@ -125,6 +125,56 @@ test('returns 503 for CDP discovery before Chrome is started', async () => {
   }
 });
 
+test('serves remote Playwright instructions over the broker endpoint', async () => {
+  const server = createBrokerServer({
+    browserManager: {
+      activeInstance: () => undefined,
+      listInstances: () => [],
+    },
+  });
+
+  const { port, close } = await listen(server);
+  try {
+    const response = await requestText({
+      port,
+      method: 'GET',
+      path: '/_broker/instructions',
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(response.headers['content-type'], /text\/markdown/);
+    assert.match(response.body, /POST \/_broker\/start|_broker\/start/);
+    assert.match(response.body, /connectOverCDP\(start\.cdpUrl\)/);
+  } finally {
+    await close();
+  }
+});
+
+test('serves a copyable Playwright broker client helper', async () => {
+  const server = createBrokerServer({
+    browserManager: {
+      activeInstance: () => undefined,
+      listInstances: () => [],
+    },
+  });
+
+  const { port, close } = await listen(server);
+  try {
+    const response = await requestText({
+      port,
+      method: 'GET',
+      path: '/_broker/client.js',
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(response.headers['content-type'], /text\/javascript/);
+    assert.match(response.body, /export async function connectViaBroker/);
+    assert.match(response.body, /chromium\.connectOverCDP\(instance\.cdpUrl\)/);
+  } finally {
+    await close();
+  }
+});
+
 function listen(server) {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -136,6 +186,35 @@ function listen(server) {
         close: () => new Promise((closeResolve) => server.close(closeResolve)),
       });
     });
+  });
+}
+
+function requestText({ port, method, path }) {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path,
+        method,
+      },
+      (response) => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          body += chunk;
+        });
+        response.on('end', () => {
+          resolve({
+            statusCode: response.statusCode,
+            headers: response.headers,
+            body,
+          });
+        });
+      }
+    );
+    request.once('error', reject);
+    request.end();
   });
 }
 
