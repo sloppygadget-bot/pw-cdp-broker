@@ -1,10 +1,11 @@
 ---
 title: Observability Inventory
 type: raw-nfr-observability
-generated: 2026-06-15T00:00:00Z
+generated: 2026-06-16T00:00:00Z
 commit: none
 command: "manual observability scan"
 sources:
+  - src/browser-manager.js
   - src/cli.js
   - src/server.js
 ---
@@ -16,9 +17,11 @@ Current operator-visible signals:
 - Chrome executable path and profile path are printed at launch.
 - Broker listen URL is printed after server startup.
 - Remote Playwright `connectOverCDP` hint is printed.
+- Standby mode prints the broker start endpoint.
+- Immediate mode prints both root and instance-scoped Playwright connection hints.
 - SSH tunnel target, remote/local mapping, and ControlPersist value are printed.
 - Unexpected Chrome and SSH exits are logged to stderr.
-- HTTP proxy failures return `502` with the error message.
+- HTTP proxy failures return JSON error responses with status-specific codes.
 
 Current gaps:
 

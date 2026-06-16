@@ -3,14 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { createBrowserManager } from './browser-manager.js';
 import { createBrokerServer } from './server.js';
-import {
-  buildChromeArgs,
-  findChromeExecutable,
-  getFreePort,
-  waitForChrome,
-} from './chrome.js';
-import { profileDirForName, validateProfileName } from './profiles.js';
+import { findChromeExecutable } from './chrome.js';
+import { validateProfileName } from './profiles.js';
 
 const DEFAULT_BROKER_PORT = 18080;
 const DEFAULT_PROFILE = 'default';
@@ -31,23 +27,21 @@ export async function main(argv) {
   const brokerPort = Number(options.port ?? DEFAULT_BROKER_PORT);
   assertPort(brokerPort, '--port');
 
-  const chromeDebugPort = options.chromePort
-    ? Number(options.chromePort)
-    : await getFreePort('127.0.0.1');
-  assertPort(chromeDebugPort, '--chrome-port');
+  const chromeDebugPort = options.chromePort ? Number(options.chromePort) : undefined;
+  if (chromeDebugPort !== undefined) assertPort(chromeDebugPort, '--chrome-port');
 
-  const userDataDir = options.userDataDir
+  const defaultProfile = options.profile ?? (options.standby ? undefined : DEFAULT_PROFILE);
+  const defaultUserDataDir = options.userDataDir
     ? path.resolve(options.userDataDir)
-    : profileDirForName(options.profile ?? DEFAULT_PROFILE);
+    : undefined;
+  const sshProxyForward = parseSshProxyForward(options);
+  const proxyServer =
+    options.proxyServer ||
+    (sshProxyForward ? `http://127.0.0.1:${sshProxyForward.localPort}` : undefined);
 
-  if (options.profile) {
-    validateProfileName(options.profile);
+  if (defaultProfile) {
+    validateProfileName(defaultProfile);
   }
-
-  if (options.resetProfile) {
-    fs.rmSync(userDataDir, { recursive: true, force: true });
-  }
-  fs.mkdirSync(userDataDir, { recursive: true });
 
   const chromeExecutable =
     options.chromeExecutable || findChromeExecutable(process.env.CHROME_PATH);
@@ -57,24 +51,39 @@ export async function main(argv) {
     );
   }
 
-  const chromeArgs = buildChromeArgs({
-    remoteDebuggingPort: chromeDebugPort,
-    userDataDir,
-    headless: Boolean(options.headless),
-    extraArgs: options.chromeArg,
-  });
-
   const children = new Set();
   let server;
   let shuttingDown = false;
+  const log = (...args) => {
+    if (!options.quiet) console.log(...args);
+  };
+
+  const browserManager = createBrowserManager({
+    chromeExecutable,
+    defaultProfile,
+    defaultUserDataDir,
+    defaultChromePort: chromeDebugPort,
+    headless: Boolean(options.headless),
+    proxyServer,
+    proxyBypassList: options.proxyBypassList,
+    ignoreSslErrors: Boolean(options.ignoreSslErrors),
+    extraArgs: options.chromeArg,
+    quiet: Boolean(options.quiet),
+    onUnexpectedExit: ({ code, signal }) => {
+      if (shuttingDown) return;
+      console.error(`Chrome exited unexpectedly: code=${code} signal=${signal}`);
+      if (!options.standby) void shutdown();
+    },
+  });
 
   const shutdown = async (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    if (signal) console.log(`Received ${signal}; shutting down.`);
+    if (signal) log(`Received ${signal}; shutting down.`);
     if (server) {
       await new Promise((resolve) => server.close(resolve));
     }
+    await browserManager.stopAll();
     for (const child of children) {
       if (!child.killed) child.kill('SIGTERM');
     }
@@ -83,25 +92,16 @@ export async function main(argv) {
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
-  console.log(`Launching Chrome: ${chromeExecutable}`);
-  console.log(`Chrome profile: ${userDataDir}`);
-  const chrome = spawn(chromeExecutable, chromeArgs, {
-    stdio: ['ignore', 'inherit', 'inherit'],
-  });
-  children.add(chrome);
-  chrome.on('exit', (code, signal) => {
-    children.delete(chrome);
-    if (!shuttingDown) {
-      console.error(`Chrome exited unexpectedly: code=${code} signal=${signal}`);
-      void shutdown();
-    }
-  });
-
-  await waitForChrome({ host: '127.0.0.1', port: chromeDebugPort });
+  let initialInstance;
+  if (!options.standby) {
+    initialInstance = await browserManager.start({
+      profile: defaultProfile,
+      resetProfile: Boolean(options.resetProfile),
+    });
+  }
 
   server = createBrokerServer({
-    chromeHost: '127.0.0.1',
-    chromePort: chromeDebugPort,
+    browserManager,
   });
 
   await new Promise((resolve, reject) => {
@@ -115,8 +115,15 @@ export async function main(argv) {
   const address = server.address();
   const listenHost =
     typeof address === 'object' && address ? address.address : options.host ?? '127.0.0.1';
-  console.log(`CDP broker listening: http://${listenHost}:${brokerPort}`);
-  console.log(`Remote Playwright: chromium.connectOverCDP('http://127.0.0.1:${brokerPort}')`);
+  log(`CDP broker listening: http://${listenHost}:${brokerPort}`);
+  if (options.standby) {
+    log(`Broker standby start endpoint: http://${listenHost}:${brokerPort}/_broker/start`);
+  } else {
+    log(`Remote Playwright: chromium.connectOverCDP('http://127.0.0.1:${brokerPort}')`);
+    log(
+      `Remote Playwright instance URL: chromium.connectOverCDP('http://127.0.0.1:${brokerPort}/_broker/instances/${initialInstance.id}')`
+    );
+  }
 
   if (options.ssh) {
     const ssh = startSshTunnel({
@@ -124,6 +131,8 @@ export async function main(argv) {
       localPort: brokerPort,
       remotePort: Number(options.sshRemotePort ?? brokerPort),
       controlPersist: options.sshControlPersist ?? DEFAULT_SSH_CONTROL_PERSIST,
+      proxyForward: sshProxyForward,
+      quiet: Boolean(options.quiet),
     });
     children.add(ssh);
     ssh.on('exit', (code, signal) => {
@@ -148,6 +157,12 @@ export function parseArgs(argv) {
       options.headless = true;
     } else if (arg === '--reset-profile') {
       options.resetProfile = true;
+    } else if (arg === '--ignore-ssl-errors') {
+      options.ignoreSslErrors = true;
+    } else if (arg === '--quiet') {
+      options.quiet = true;
+    } else if (arg === '--standby') {
+      options.standby = true;
     } else if (arg.startsWith('--')) {
       const [name, inlineValue] = arg.split('=', 2);
       const value = inlineValue ?? argv[++i];
@@ -174,6 +189,12 @@ export function parseArgs(argv) {
         case '--chrome-arg':
           options.chromeArg.push(value);
           break;
+        case '--proxy-server':
+          options.proxyServer = value;
+          break;
+        case '--proxy-bypass-list':
+          options.proxyBypassList = value;
+          break;
         case '--ssh':
           options.ssh = value;
           break;
@@ -182,6 +203,12 @@ export function parseArgs(argv) {
           break;
         case '--ssh-control-persist':
           options.sshControlPersist = value;
+          break;
+        case '--ssh-proxy-remote-port':
+          options.sshProxyRemotePort = value;
+          break;
+        case '--ssh-proxy-local-port':
+          options.sshProxyLocalPort = value;
           break;
         default:
           throw new Error(`Unknown option: ${name}`);
@@ -194,33 +221,83 @@ export function parseArgs(argv) {
   return options;
 }
 
+function parseSshProxyForward(options) {
+  if (!options.sshProxyRemotePort && !options.sshProxyLocalPort) {
+    return undefined;
+  }
+  if (!options.ssh) {
+    throw new Error('--ssh-proxy-remote-port requires --ssh');
+  }
+  if (!options.sshProxyRemotePort) {
+    throw new Error('--ssh-proxy-local-port requires --ssh-proxy-remote-port');
+  }
+
+  const remotePort = Number(options.sshProxyRemotePort);
+  assertPort(remotePort, '--ssh-proxy-remote-port');
+  const localPort = options.sshProxyLocalPort
+    ? Number(options.sshProxyLocalPort)
+    : remotePort;
+  assertPort(localPort, '--ssh-proxy-local-port');
+  return { localPort, remotePort };
+}
+
 function assertPort(port, name) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`${name} must be a TCP port between 1 and 65535`);
   }
 }
 
-function startSshTunnel({ target, localPort, remotePort, controlPersist }) {
+function startSshTunnel({ target, localPort, remotePort, controlPersist, proxyForward, quiet }) {
   assertPort(remotePort, '--ssh-remote-port');
   const controlDir = path.join(os.homedir(), '.pw-cdp-broker', 'ssh');
   fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+  const log = (...args) => {
+    if (!quiet) console.log(...args);
+  };
+  const args = buildSshArgs({
+    target,
+    localPort,
+    remotePort,
+    controlPersist,
+    controlPath: path.join(controlDir, '%C'),
+    proxyForward,
+  });
 
+  log(`Starting SSH reverse tunnel: ${target} remote ${remotePort} -> local ${localPort}`);
+  if (proxyForward) {
+    log(
+      `Starting SSH proxy forward: local ${proxyForward.localPort} -> remote ${proxyForward.remotePort}`
+    );
+  }
+  log(`SSH ControlPersist: ${controlPersist}`);
+  return spawn('ssh', args, { stdio: 'inherit' });
+}
+
+export function buildSshArgs({
+  target,
+  localPort,
+  remotePort,
+  controlPersist,
+  controlPath,
+  proxyForward,
+}) {
   const args = [
     '-o',
     'ControlMaster=auto',
     '-o',
     `ControlPersist=${controlPersist}`,
     '-o',
-    `ControlPath=${path.join(controlDir, '%C')}`,
-    '-N',
-    '-R',
-    `${remotePort}:localhost:${localPort}`,
-    target,
+    `ControlPath=${controlPath}`,
+    '-o',
+    'ExitOnForwardFailure=yes',
   ];
 
-  console.log(`Starting SSH reverse tunnel: ${target} remote ${remotePort} -> local ${localPort}`);
-  console.log(`SSH ControlPersist: ${controlPersist}`);
-  return spawn('ssh', args, { stdio: 'inherit' });
+  if (proxyForward) {
+    args.push('-L', `${proxyForward.localPort}:localhost:${proxyForward.remotePort}`);
+  }
+
+  args.push('-N', '-R', `${remotePort}:localhost:${localPort}`, target);
+  return args;
 }
 
 function printHelp() {
@@ -241,9 +318,16 @@ Options:
   --chrome-port <port>          Chrome remote debugging port. Default: random free port
   --chrome-executable <path>    Chrome/Chromium executable path
   --chrome-arg <arg>            Extra Chrome arg; repeatable
+  --proxy-server <server>       Chrome proxy server, e.g. http://127.0.0.1:8899
+  --proxy-bypass-list <rules>   Chrome proxy bypass list
+  --ignore-ssl-errors           Ignore HTTPS certificate errors in Chrome
+  --quiet                       Suppress broker status logs and Chrome output
+  --standby                     Listen for broker control requests without launching Chrome
   --headless                    Launch Chrome headless
   --ssh <user@host>             Start an SSH reverse tunnel to a code-server host
   --ssh-remote-port <port>      Remote tunnel port. Default: same as --port
+  --ssh-proxy-remote-port <p>   Forward remote proxy port to local Chrome
+  --ssh-proxy-local-port <p>    Local forwarded proxy port. Default: same as remote
   --ssh-control-persist <time>  OpenSSH ControlPersist value. Default: 24h
   --help                        Show this help
 

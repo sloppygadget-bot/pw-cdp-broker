@@ -1,7 +1,7 @@
 ---
 title: Import Graph
 type: raw-import-graph
-generated: 2026-06-15T00:00:00Z
+generated: 2026-06-16T00:00:00Z
 commit: none
 command: "manual import scan"
 ---
@@ -10,17 +10,24 @@ command: "manual import scan"
 flowchart TD
   bin["bin/pw-cdp-broker.js"] --> cli["src/cli.js"]
   cli --> server["src/server.js"]
+  cli --> manager["src/browser-manager.js"]
   cli --> chrome["src/chrome.js"]
   cli --> profiles["src/profiles.js"]
-  profiles --> chrome
+  manager --> chrome
+  manager --> profiles
   profileTests["test/profiles.test.js"] --> profiles
   serverTests["test/server.test.js"] --> server
+  managerTests["test/browser-manager.test.js"] --> manager
+  chromeTests["test/chrome.test.js"] --> chrome
+  cliTests["test/cli.test.js"] --> cli
 ```
 
 External Node built-ins used:
 
 - `node:assert/strict`
 - `node:child_process`
+- `node:crypto`
+- `node:events`
 - `node:fs`
 - `node:http`
 - `node:net`

@@ -2,7 +2,7 @@
 title: Feature Spec Index
 type: feature-spec-index
 status: active
-updated: 2026-06-15
+updated: 2026-06-16
 owners: []
 confidence: high
 ---
@@ -13,6 +13,7 @@ confidence: high
 
 - [Chrome-Compatible CDP Broker](features/chrome-compatible-cdp-broker.md)
 - [Persistent Browser Profiles](features/persistent-browser-profiles.md)
+- [Remote Browser Lifecycle Control](features/remote-browser-lifecycle-control.md)
 
 ## Integrations
 

@@ -1,5 +1,33 @@
 # Knowledge Base Log
 
+## 2026-06-16 00:00 UTC - document standby browser lifecycle
+
+- Trigger: User requested standby broker lifecycle where remote Playwright can start Chrome with profile and proxy options.
+- Scope: Remote browser lifecycle control design, instance-scoped CDP URLs, tests, and implementation.
+- Raw updated:
+  - `.kn/raw/codebase/modules/module-inventory.md`
+  - `.kn/raw/codebase/symbols/symbol-index.jsonl`
+  - `.kn/raw/codebase/dependencies/import-graph.mmd`
+  - `.kn/raw/codebase/APIs/http-route-map.md`
+  - `.kn/raw/codebase/tests/unit-test-inventory.md`
+  - `.kn/raw/codebase/nfr/security-surface.md`
+  - `.kn/raw/codebase/nfr/observability-inventory.md`
+- Wiki updated:
+  - `.kn/wiki/architecture/system-overview.md`
+  - `.kn/wiki/architecture/module-boundaries.md`
+  - `.kn/wiki/testing/testing-strategy.md`
+  - `.kn/wiki/nfr/security.md`
+- FS updated:
+  - `.kn/fs/index.md`
+  - `.kn/fs/features/remote-browser-lifecycle-control.md`
+- Tests updated:
+  - `test/browser-manager.test.js`
+  - `test/server.test.js`
+  - `test/cli.test.js`
+  - `test/chrome.test.js`
+- Notes:
+  - Initial implementation is single-instance but uses instance-scoped URLs so the contract can generalize to multi-instance later.
+
 ## 2026-06-15 00:00 UTC - initialize KB after broker implementation
 
 - Trigger: User requested broker implementation and `.kn/` wiki maintenance.

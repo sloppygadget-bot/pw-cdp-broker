@@ -2,9 +2,14 @@ import http from 'node:http';
 import net from 'node:net';
 import { URL } from 'node:url';
 
-export function createBrokerServer({ chromeHost, chromePort }) {
+export function createBrokerServer({ browserManager } = {}) {
   const server = http.createServer(async (req, res) => {
     try {
+      if (req.url?.startsWith('/_broker/') && !req.url.startsWith('/_broker/instances/')) {
+        await handleControlRequest({ req, res, browserManager });
+        return;
+      }
+
       if (req.method !== 'GET') {
         res.writeHead(405, { allow: 'GET' });
         res.end('Method Not Allowed');
@@ -12,28 +17,43 @@ export function createBrokerServer({ chromeHost, chromePort }) {
       }
 
       if (req.url === '/' || req.url === '/healthz') {
+        const instance = browserManager?.activeInstance?.();
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, chrome: `${chromeHost}:${chromePort}` }));
+        res.end(
+          JSON.stringify({
+            ok: true,
+            running: Boolean(instance),
+            chrome: instance ? `${instance.chromeHost}:${instance.chromePort}` : null,
+          })
+        );
         return;
       }
 
-      await proxyHttpRequest({ req, res, chromeHost, chromePort });
+      const route = resolveCdpRoute({ url: req.url, browserManager });
+      await proxyHttpRequest({ req, res, route });
     } catch (error) {
-      res.writeHead(502, { 'content-type': 'text/plain' });
-      res.end(error?.message || 'Bad Gateway');
+      writeError(res, error);
     }
   });
 
   server.on('upgrade', (req, socket, head) => {
-    proxyUpgrade({ req, socket, head, chromeHost, chromePort });
+    try {
+      const route = resolveCdpRoute({ url: req.url, browserManager });
+      proxyUpgrade({ req, socket, head, route });
+    } catch (error) {
+      socket.write(
+        `HTTP/1.1 ${error.statusCode || 502} ${http.STATUS_CODES[error.statusCode] || 'Bad Gateway'}\r\n\r\n`
+      );
+      socket.destroy();
+    }
   });
 
   return server;
 }
 
-export function rewriteDebuggerUrls(value, brokerOrigin) {
+export function rewriteDebuggerUrls(value, brokerBaseUrl) {
   if (Array.isArray(value)) {
-    return value.map((item) => rewriteDebuggerUrls(item, brokerOrigin));
+    return value.map((item) => rewriteDebuggerUrls(item, brokerBaseUrl));
   }
   if (!value || typeof value !== 'object') {
     return value;
@@ -45,35 +65,77 @@ export function rewriteDebuggerUrls(value, brokerOrigin) {
       typeof child === 'string' &&
       (key === 'webSocketDebuggerUrl' || key.endsWith('WebSocketDebuggerUrl'))
     ) {
-      rewritten[key] = rewriteWebSocketUrl(child, brokerOrigin);
+      rewritten[key] = rewriteWebSocketUrl(child, brokerBaseUrl);
     } else {
-      rewritten[key] = rewriteDebuggerUrls(child, brokerOrigin);
+      rewritten[key] = rewriteDebuggerUrls(child, brokerBaseUrl);
     }
   }
   return rewritten;
 }
 
-function rewriteWebSocketUrl(rawUrl, brokerOrigin) {
+async function handleControlRequest({ req, res, browserManager }) {
+  if (req.url === '/_broker/status' && req.method === 'GET') {
+    writeJson(res, 200, {
+      ok: true,
+      running: Boolean(browserManager?.activeInstance?.()),
+      instances: browserManager?.listInstances?.() ?? [],
+    });
+    return;
+  }
+
+  if (req.url === '/_broker/start' && req.method === 'POST') {
+    if (!browserManager?.start) {
+      writeJson(res, 404, { ok: false, error: 'Browser lifecycle is not enabled' });
+      return;
+    }
+    const options = await readJsonBody(req);
+    const instance = await browserManager.start(options);
+    writeJson(res, 200, {
+      ok: true,
+      instanceId: instance.id,
+      cdpUrl: instanceBaseUrl(req, instance.id),
+      profile: instance.profile,
+      chromePid: instance.pid,
+      startedAt: instance.startedAt,
+    });
+    return;
+  }
+
+  if (req.url === '/_broker/stop' && req.method === 'POST') {
+    if (!browserManager?.stop) {
+      writeJson(res, 404, { ok: false, error: 'Browser lifecycle is not enabled' });
+      return;
+    }
+    const options = await readJsonBody(req);
+    const result = await browserManager.stop(options);
+    writeJson(res, 200, { ok: true, ...result });
+    return;
+  }
+
+  writeJson(res, 404, { ok: false, error: 'Unknown broker endpoint' });
+}
+
+function rewriteWebSocketUrl(rawUrl, brokerBaseUrl) {
   const source = new URL(rawUrl);
-  const broker = new URL(brokerOrigin);
+  const broker = new URL(brokerBaseUrl);
   source.protocol = broker.protocol === 'https:' ? 'wss:' : 'ws:';
   source.hostname = broker.hostname;
   source.port = broker.port;
+  source.pathname = joinUrlPath(broker.pathname, source.pathname);
   return source.toString();
 }
 
-async function proxyHttpRequest({ req, res, chromeHost, chromePort }) {
+async function proxyHttpRequest({ req, res, route }) {
   const body = await requestChrome({
     req,
-    chromeHost,
-    chromePort,
+    route,
   });
 
   const contentType = body.headers['content-type'] || '';
   const shouldRewrite =
-    req.url === '/json/version' ||
-    req.url === '/json' ||
-    req.url === '/json/list' ||
+    route.chromePath === '/json/version' ||
+    route.chromePath === '/json' ||
+    route.chromePath === '/json/list' ||
     contentType.includes('application/json');
 
   if (!shouldRewrite) {
@@ -91,8 +153,8 @@ async function proxyHttpRequest({ req, res, chromeHost, chromePort }) {
     return;
   }
 
-  const brokerOrigin = requestOrigin(req);
-  const rewritten = rewriteDebuggerUrls(payload, brokerOrigin);
+  const brokerBaseUrl = requestBaseUrl(req, route.brokerBasePath);
+  const rewritten = rewriteDebuggerUrls(payload, brokerBaseUrl);
   const responseBody = Buffer.from(JSON.stringify(rewritten, null, 2));
   res.writeHead(body.statusCode, {
     ...body.headers,
@@ -102,15 +164,15 @@ async function proxyHttpRequest({ req, res, chromeHost, chromePort }) {
   res.end(responseBody);
 }
 
-function requestChrome({ req, chromeHost, chromePort }) {
+function requestChrome({ req, route }) {
   return new Promise((resolve, reject) => {
-    const headers = { ...req.headers, host: `${chromeHost}:${chromePort}` };
+    const headers = { ...req.headers, host: `${route.chromeHost}:${route.chromePort}` };
     const request = http.request(
       {
-        host: chromeHost,
-        port: chromePort,
+        host: route.chromeHost,
+        port: route.chromePort,
         method: req.method,
-        path: req.url,
+        path: route.chromePath,
         headers,
       },
       (response) => {
@@ -130,11 +192,11 @@ function requestChrome({ req, chromeHost, chromePort }) {
   });
 }
 
-function proxyUpgrade({ req, socket, head, chromeHost, chromePort }) {
-  const upstream = net.connect(chromePort, chromeHost);
+function proxyUpgrade({ req, socket, head, route }) {
+  const upstream = net.connect(route.chromePort, route.chromeHost);
 
   upstream.once('connect', () => {
-    upstream.write(buildUpgradeRequest(req, chromeHost, chromePort));
+    upstream.write(buildUpgradeRequest(req, route));
     if (head?.length) upstream.write(head);
     socket.pipe(upstream);
     upstream.pipe(socket);
@@ -152,26 +214,117 @@ function proxyUpgrade({ req, socket, head, chromeHost, chromePort }) {
   });
 }
 
-function buildUpgradeRequest(req, chromeHost, chromePort) {
-  const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
+function buildUpgradeRequest(req, route) {
+  const lines = [`${req.method} ${route.chromePath} HTTP/${req.httpVersion}`];
   const rawHeaders = req.rawHeaders || [];
   let wroteHost = false;
   for (let i = 0; i < rawHeaders.length; i += 2) {
     const name = rawHeaders[i];
     const value = rawHeaders[i + 1];
     if (name.toLowerCase() === 'host') {
-      lines.push(`Host: ${chromeHost}:${chromePort}`);
+      lines.push(`Host: ${route.chromeHost}:${route.chromePort}`);
       wroteHost = true;
     } else {
       lines.push(`${name}: ${value}`);
     }
   }
-  if (!wroteHost) lines.push(`Host: ${chromeHost}:${chromePort}`);
+  if (!wroteHost) lines.push(`Host: ${route.chromeHost}:${route.chromePort}`);
   return `${lines.join('\r\n')}\r\n\r\n`;
 }
 
-function requestOrigin(req) {
+function resolveCdpRoute({ url, browserManager }) {
+  const instanceRoute = parseInstanceRoute(url);
+  if (instanceRoute) {
+    const instance = browserManager?.getInstance?.(instanceRoute.instanceId);
+    if (!instance) {
+      const error = new Error(`Unknown browser instance: ${instanceRoute.instanceId}`);
+      error.statusCode = 404;
+      throw error;
+    }
+    return {
+      chromeHost: instance.chromeHost,
+      chromePort: instance.chromePort,
+      chromePath: instanceRoute.chromePath,
+      brokerBasePath: instanceRoute.brokerBasePath,
+    };
+  }
+
+  const instance = browserManager?.activeInstance?.();
+  if (!instance) {
+    const error = new Error('Chrome is not running');
+    error.statusCode = 503;
+    throw error;
+  }
+  return {
+    chromeHost: instance.chromeHost,
+    chromePort: instance.chromePort,
+    chromePath: url,
+    brokerBasePath: '',
+  };
+}
+
+function parseInstanceRoute(url) {
+  const match = /^\/_broker\/instances\/([^/]+)(\/.*)?$/.exec(url || '');
+  if (!match) return undefined;
+  return {
+    instanceId: decodeURIComponent(match[1]),
+    brokerBasePath: `/_broker/instances/${match[1]}`,
+    chromePath: match[2] || '/',
+  };
+}
+
+function requestBaseUrl(req, brokerBasePath = '') {
   const host = req.headers.host;
   const encrypted = Boolean(req.socket.encrypted);
-  return `${encrypted ? 'https' : 'http'}://${host}`;
+  return `${encrypted ? 'https' : 'http'}://${host}${brokerBasePath}`;
+}
+
+function instanceBaseUrl(req, instanceId) {
+  return `${requestBaseUrl(req)}/_broker/instances/${encodeURIComponent(instanceId)}`;
+}
+
+function joinUrlPath(prefix, suffix) {
+  const normalizedPrefix = prefix === '/' ? '' : prefix.replace(/\/$/, '');
+  const normalizedSuffix = suffix.startsWith('/') ? suffix : `/${suffix}`;
+  return `${normalizedPrefix}${normalizedSuffix}`;
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      if (!body) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(body));
+      } catch (error) {
+        error.statusCode = 400;
+        reject(error);
+      }
+    });
+    req.once('error', reject);
+  });
+}
+
+function writeJson(res, statusCode, payload) {
+  const body = Buffer.from(JSON.stringify(payload));
+  res.writeHead(statusCode, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': body.length,
+  });
+  res.end(body);
+}
+
+function writeError(res, error) {
+  const statusCode = error?.statusCode || 502;
+  writeJson(res, statusCode, {
+    ok: false,
+    error: error?.message || http.STATUS_CODES[statusCode] || 'Bad Gateway',
+  });
 }

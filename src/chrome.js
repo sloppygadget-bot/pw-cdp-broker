@@ -25,6 +25,9 @@ export function buildChromeArgs({
   remoteDebuggingPort,
   userDataDir,
   headless = false,
+  proxyServer,
+  proxyBypassList,
+  ignoreSslErrors = false,
   extraArgs = [],
 }) {
   const args = [
@@ -35,6 +38,9 @@ export function buildChromeArgs({
     '--disable-popup-blocking',
   ];
   if (headless) args.push('--headless=new');
+  if (proxyServer) args.push(`--proxy-server=${proxyServer}`);
+  if (proxyBypassList) args.push(`--proxy-bypass-list=${proxyBypassList}`);
+  if (ignoreSslErrors) args.push('--ignore-certificate-errors');
   args.push(...extraArgs);
   args.push('about:blank');
   return args;
