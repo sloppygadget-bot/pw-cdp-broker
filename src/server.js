@@ -2,11 +2,11 @@ import http from 'node:http';
 import net from 'node:net';
 import { URL } from 'node:url';
 
-export function createBrokerServer({ browserManager } = {}) {
+export function createBrokerServer({ browserManager, proxyForwardManager } = {}) {
   const server = http.createServer(async (req, res) => {
     try {
       if (req.url?.startsWith('/_broker/') && !req.url.startsWith('/_broker/instances/')) {
-        await handleControlRequest({ req, res, browserManager });
+        await handleControlRequest({ req, res, browserManager, proxyForwardManager });
         return;
       }
 
@@ -17,13 +17,15 @@ export function createBrokerServer({ browserManager } = {}) {
       }
 
       if (req.url === '/' || req.url === '/healthz') {
-        const instance = browserManager?.activeInstance?.();
+        const instances = browserManager?.listInstances?.() ?? [];
+        const instance = instances.length === 1 ? instances[0] : undefined;
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(
           JSON.stringify({
             ok: true,
-            running: Boolean(instance),
+            running: instances.length > 0,
             chrome: instance ? `${instance.chromeHost}:${instance.chromePort}` : null,
+            instances,
           })
         );
         return;
@@ -73,22 +75,59 @@ export function rewriteDebuggerUrls(value, brokerBaseUrl) {
   return rewritten;
 }
 
-async function handleControlRequest({ req, res, browserManager }) {
-  if (req.url === '/_broker/instructions' && req.method === 'GET') {
-    writeText(res, 200, 'text/markdown; charset=utf-8', brokerInstructions());
+async function handleControlRequest({ req, res, browserManager, proxyForwardManager }) {
+  if (
+    (req.url === '/_broker/help' || req.url === '/_broker/instructions') &&
+    req.method === 'GET'
+  ) {
+    writeText(res, 200, 'text/markdown; charset=utf-8', brokerInstructions(requestBaseUrl(req)));
     return;
   }
 
   if (req.url === '/_broker/client.js' && req.method === 'GET') {
-    writeText(res, 200, 'text/javascript; charset=utf-8', brokerClientSource());
+    writeText(res, 200, 'text/javascript; charset=utf-8', brokerClientSource(requestBaseUrl(req)));
+    return;
+  }
+
+  if (req.url === '/_broker/proxy-forwards' && req.method === 'GET') {
+    const instances = browserManager?.listInstances?.() ?? [];
+    writeJson(res, 200, {
+      ok: true,
+      forwards: proxyForwardManager?.list?.(instances) ?? [],
+    });
+    return;
+  }
+
+  if (req.url === '/_broker/proxy-forwards' && req.method === 'POST') {
+    if (!proxyForwardManager?.create) {
+      writeJson(res, 404, { ok: false, error: 'Proxy forward lifecycle is not enabled' });
+      return;
+    }
+    const options = await readJsonBody(req);
+    const forward = await proxyForwardManager.create(options);
+    writeJson(res, 200, { ok: true, ...forward });
+    return;
+  }
+
+  const proxyForwardDelete = /^\/_broker\/proxy-forwards\/([^/]+)$/.exec(req.url || '');
+  if (proxyForwardDelete && req.method === 'DELETE') {
+    if (!proxyForwardManager?.delete) {
+      writeJson(res, 404, { ok: false, error: 'Proxy forward lifecycle is not enabled' });
+      return;
+    }
+    const instances = browserManager?.listInstances?.() ?? [];
+    const result = proxyForwardManager.delete(decodeURIComponent(proxyForwardDelete[1]), instances);
+    writeJson(res, 200, { ok: true, ...result });
     return;
   }
 
   if (req.url === '/_broker/status' && req.method === 'GET') {
+    const instances = browserManager?.listInstances?.() ?? [];
     writeJson(res, 200, {
       ok: true,
-      running: Boolean(browserManager?.activeInstance?.()),
-      instances: browserManager?.listInstances?.() ?? [],
+      running: instances.length > 0,
+      instances,
+      proxyForwards: proxyForwardManager?.list?.(instances) ?? [],
     });
     return;
   }
@@ -99,12 +138,19 @@ async function handleControlRequest({ req, res, browserManager }) {
       return;
     }
     const options = await readJsonBody(req);
-    const instance = await browserManager.start(options);
+    const instance = await browserManager.start(resolveStartOptions({
+      options,
+      proxyForwardManager,
+      instances: browserManager?.listInstances?.() ?? [],
+    }));
     writeJson(res, 200, {
       ok: true,
       instanceId: instance.id,
       cdpUrl: instanceBaseUrl(req, instance.id),
       profile: instance.profile,
+      proxyForwardId: instance.proxyForwardId,
+      proxyServer: instance.proxyServer,
+      headless: instance.headless,
       chromePid: instance.pid,
       startedAt: instance.startedAt,
     });
@@ -123,6 +169,25 @@ async function handleControlRequest({ req, res, browserManager }) {
   }
 
   writeJson(res, 404, { ok: false, error: 'Unknown broker endpoint' });
+}
+
+function resolveStartOptions({ options, proxyForwardManager, instances }) {
+  if (options.proxyServer && options.proxyForwardId) {
+    const error = new Error('proxyServer and proxyForwardId are mutually exclusive');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!options.proxyForwardId) return options;
+  const forward = proxyForwardManager?.get?.(options.proxyForwardId, instances);
+  if (!forward) {
+    const error = new Error(`Unknown proxy forward: ${options.proxyForwardId}`);
+    error.statusCode = 404;
+    throw error;
+  }
+  return {
+    ...options,
+    proxyServer: forward.proxyServer,
+  };
 }
 
 function rewriteWebSocketUrl(rawUrl, brokerBaseUrl) {
@@ -166,8 +231,13 @@ async function proxyHttpRequest({ req, res, route }) {
   const brokerBaseUrl = requestBaseUrl(req, route.brokerBasePath);
   const rewritten = rewriteDebuggerUrls(payload, brokerBaseUrl);
   const responseBody = Buffer.from(JSON.stringify(rewritten, null, 2));
+  const {
+    'content-length': _contentLength,
+    'transfer-encoding': _transferEncoding,
+    ...headers
+  } = body.headers;
   res.writeHead(body.statusCode, {
-    ...body.headers,
+    ...headers,
     'content-type': 'application/json; charset=utf-8',
     'content-length': responseBody.length,
   });
@@ -348,36 +418,64 @@ function writeError(res, error) {
   });
 }
 
-function brokerInstructions() {
+function brokerInstructions(brokerUrl) {
   return `# pw-cdp-broker remote Playwright instructions
 
 This broker starts local Chrome on demand and returns the CDP URL that remote
 Playwright must use.
 
-1. Start Chrome through the broker:
+## Start an instance
 
 \`\`\`js
-const start = await fetch('http://127.0.0.1:18080/_broker/start', {
+const start = await fetch('${brokerUrl}/_broker/start', {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify({
     profile: 'work-okta',
-    proxyServer: 'http://127.0.0.1:18899',
+    headless: false,
     ignoreSslErrors: true,
   }),
 }).then((response) => response.json());
 \`\`\`
 
-2. Connect Playwright to the returned instance URL:
+## Connect Playwright
 
 \`\`\`js
 const browser = await chromium.connectOverCDP(start.cdpUrl);
+const context = browser.contexts()[0];
+const page = context.pages()[0] ?? await context.newPage();
 \`\`\`
 
-3. Optionally stop the instance when finished:
+Remote Playwright can inspect DOM and capture screenshots through the connected
+page. Video recording for broker-controlled persistent sessions is not part of
+this helper.
+
+## Managed remote proxy forward
 
 \`\`\`js
-await fetch('http://127.0.0.1:18080/_broker/stop', {
+const forward = await fetch('${brokerUrl}/_broker/proxy-forwards', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ name: 'whistle', remotePort: 8899 }),
+}).then((response) => response.json());
+
+const proxied = await fetch('${brokerUrl}/_broker/start', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({
+    profile: 'work-okta',
+    proxyForwardId: forward.forwardId,
+    ignoreSslErrors: true,
+  }),
+}).then((response) => response.json());
+\`\`\`
+
+## Status and cleanup
+
+\`\`\`js
+const status = await fetch('${brokerUrl}/_broker/status').then((response) => response.json());
+
+await fetch('${brokerUrl}/_broker/stop', {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ instanceId: start.instanceId }),
@@ -392,15 +490,17 @@ GET /_broker/client.js
 `;
 }
 
-function brokerClientSource() {
+function brokerClientSource(brokerUrl) {
   return `import { chromium } from 'playwright';
 
 export async function connectViaBroker({
-  brokerUrl = 'http://127.0.0.1:18080',
+  brokerUrl = '${brokerUrl}',
   profile,
   proxyServer,
+  proxyForwardId,
   proxyBypassList,
   ignoreSslErrors,
+  headless,
 } = {}) {
   const response = await fetch(\`\${brokerUrl}/_broker/start\`, {
     method: 'POST',
@@ -408,8 +508,10 @@ export async function connectViaBroker({
     body: JSON.stringify({
       profile,
       proxyServer,
+      proxyForwardId,
       proxyBypassList,
       ignoreSslErrors,
+      headless,
     }),
   });
 

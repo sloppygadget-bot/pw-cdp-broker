@@ -45,30 +45,31 @@ class BrowserManager {
     this.log = (...args) => {
       if (!quiet) log(...args);
     };
-    this.instance = undefined;
+    this.instances = new Map();
   }
 
   activeInstance() {
-    return this.instance;
+    const instances = [...this.instances.values()];
+    if (instances.length === 0) return undefined;
+    if (instances.length === 1) return instances[0];
+    const error = new Error(
+      'Multiple Chrome instances are running; use an instance-scoped cdpUrl'
+    );
+    error.statusCode = 409;
+    throw error;
   }
 
   listInstances() {
-    return this.instance ? [describeInstance(this.instance)] : [];
+    return [...this.instances.values()].map((instance) => describeInstance(instance));
   }
 
   getInstance(instanceId) {
-    if (this.instance?.id === instanceId) return this.instance;
-    return undefined;
+    return this.instances.get(instanceId);
   }
 
   async start(options = {}) {
-    if (this.instance) {
-      const error = new Error('Chrome is already running');
-      error.statusCode = 409;
-      throw error;
-    }
-
     const launch = this.buildLaunchOptions(options);
+    this.assertNoLaunchConflict(launch);
     if (launch.resetProfile) {
       fs.rmSync(launch.userDataDir, { recursive: true, force: true });
     }
@@ -97,15 +98,18 @@ class BrowserManager {
       userDataDir: launch.userDataDir,
       chromeHost: '127.0.0.1',
       chromePort,
+      headless: launch.headless,
+      proxyServer: launch.proxyServer,
+      proxyForwardId: launch.proxyForwardId,
       pid: child.pid,
       startedAt: new Date().toISOString(),
       child,
     };
-    this.instance = instance;
+    this.instances.set(instance.id, instance);
 
     child.on('exit', (code, signal) => {
-      if (this.instance?.id === instance.id) {
-        this.instance = undefined;
+      if (this.instances.get(instance.id) === instance) {
+        this.instances.delete(instance.id);
       }
       if (!instance.expectedStop && this.onUnexpectedExit) {
         this.onUnexpectedExit({ code, signal, instance: describeInstance(instance) });
@@ -123,9 +127,17 @@ class BrowserManager {
   }
 
   async stop({ instanceId } = {}) {
-    const instance = this.instance;
-    if (!instance) return { stopped: false };
-    if (instanceId && instanceId !== instance.id) {
+    if (this.instances.size === 0) return { stopped: false };
+    if (!instanceId && this.instances.size > 1) {
+      const error = new Error('instanceId is required when multiple Chrome instances are running');
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const instance = instanceId
+      ? this.instances.get(instanceId)
+      : this.instances.values().next().value;
+    if (!instance) {
       const error = new Error(`Unknown browser instance: ${instanceId}`);
       error.statusCode = 404;
       throw error;
@@ -135,13 +147,20 @@ class BrowserManager {
     if (!instance.child.killed) {
       instance.child.kill('SIGTERM');
     }
-    this.instance = undefined;
+    this.instances.delete(instance.id);
     return { stopped: true, instanceId: instance.id };
   }
 
   async stopAll() {
-    const result = await this.stop();
-    return result.stopped ? 1 : 0;
+    const instances = [...this.instances.values()];
+    for (const instance of instances) {
+      instance.expectedStop = true;
+      if (!instance.child.killed) {
+        instance.child.kill('SIGTERM');
+      }
+      this.instances.delete(instance.id);
+    }
+    return instances.length;
   }
 
   buildLaunchOptions(options) {
@@ -173,11 +192,27 @@ class BrowserManager {
       chromePort: options.chromePort ?? this.defaultChromePort,
       headless: booleanOption(options.headless, this.headless),
       proxyServer: optionOrDefault(options, 'proxyServer', this.proxyServer),
+      proxyForwardId: options.proxyForwardId,
       proxyBypassList: optionOrDefault(options, 'proxyBypassList', this.proxyBypassList),
       ignoreSslErrors: booleanOption(options.ignoreSslErrors, this.ignoreSslErrors),
       resetProfile: Boolean(options.resetProfile),
       extraArgs: mergeExtraArgs(this.extraArgs, options.chromeArg),
     };
+  }
+
+  assertNoLaunchConflict(launch) {
+    for (const instance of this.instances.values()) {
+      if (path.resolve(instance.userDataDir) === path.resolve(launch.userDataDir)) {
+        const error = new Error(`Profile is already in use: ${launch.userDataDir}`);
+        error.statusCode = 409;
+        throw error;
+      }
+      if (launch.chromePort !== undefined && instance.chromePort === launch.chromePort) {
+        const error = new Error(`Chrome port is already in use: ${launch.chromePort}`);
+        error.statusCode = 409;
+        throw error;
+      }
+    }
   }
 }
 
@@ -188,6 +223,9 @@ function describeInstance(instance) {
     userDataDir: instance.userDataDir,
     chromeHost: instance.chromeHost,
     chromePort: instance.chromePort,
+    headless: instance.headless,
+    proxyServer: instance.proxyServer,
+    proxyForwardId: instance.proxyForwardId,
     pid: instance.pid,
     startedAt: instance.startedAt,
   };

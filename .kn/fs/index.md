@@ -12,7 +12,9 @@ confidence: high
 ## Features
 
 - [Chrome-Compatible CDP Broker](features/chrome-compatible-cdp-broker.md)
+- [Managed Proxy Forwards](features/managed-proxy-forwards.md)
 - [Persistent Browser Profiles](features/persistent-browser-profiles.md)
+- [Playwright-Backed Video Recording](features/playwright-backed-video-recording.md)
 - [Remote Browser Lifecycle Control](features/remote-browser-lifecycle-control.md)
 
 ## Integrations

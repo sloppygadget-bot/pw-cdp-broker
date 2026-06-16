@@ -10,6 +10,7 @@ sources:
   - test/browser-manager.test.js
   - test/chrome.test.js
   - test/cli.test.js
+  - test/proxy-forwards.test.js
 ---
 
 # Unit Test Inventory
@@ -19,6 +20,7 @@ sources:
 | `test/browser-manager.test.js` | `starts Chrome from remote lifecycle options` | `src/browser-manager.js`, `src/chrome.js`, `src/profiles.js` | Verifies profile mapping, proxy/TLS args, port readiness wait, and spawn call. |
 | `test/browser-manager.test.js` | `requires a profile when no default profile or user data dir is configured` | `src/browser-manager.js` | Verifies standby start requires a remote profile unless constrained by startup config. |
 | `test/browser-manager.test.js` | `stops the active Chrome instance` | `src/browser-manager.js` | Verifies instance-matched stop kills the child and clears active state. |
+| `test/browser-manager.test.js` | multi-instance scenarios | `src/browser-manager.js` | Verifies different profiles can run concurrently, same profile is rejected, one instance can stop independently, and `stopAll()` stops all instances. |
 | `test/chrome.test.js` | `adds proxy and SSL launch options before extra Chrome args` | `src/chrome.js` | Verifies launch-time proxy, bypass, and certificate flags. |
 | `test/cli.test.js` | `parses proxy and SSL options` | `src/cli.js` | Verifies proxy/TLS options are parsed. |
 | `test/cli.test.js` | `parses SSH proxy forwarding options` | `src/cli.js` | Verifies remote/local SSH proxy forward flags are parsed. |
@@ -27,26 +29,27 @@ sources:
 | `test/cli.test.js` | `builds SSH args with reverse broker tunnel and local proxy forward` | `src/cli.js` | Verifies SSH `-R`, `-L`, and ControlPersist args. |
 | `test/profiles.test.js` | `validates safe profile names` | `src/profiles.js` | Verifies allowed profile names and rejects traversal/empty names. |
 | `test/profiles.test.js` | `maps profile names under broker home` | `src/profiles.js`, `src/chrome.js` | Verifies named profile path ends under `.pw-cdp-broker/profiles/`. |
+| `test/proxy-forwards.test.js` | proxy-forward lifecycle scenarios | `src/proxy-forwards.js` | Verifies SSH args, create/list/delete, auto local port, duplicate port rejection, missing SSH target rejection, and in-use delete rejection. |
 | `test/server.test.js` | `rewrites browser and page websocket debugger urls to broker origin` | `src/server.js` | Verifies recursive CDP URL rewriting. |
 | `test/server.test.js` | `uses wss when broker origin is https` | `src/server.js` | Verifies secure broker origins produce `wss` debugger URLs. |
 | `test/server.test.js` | `rewrites debugger urls under an instance-scoped broker path` | `src/server.js` | Verifies instance path is preserved in rewritten WebSocket URLs. |
 | `test/server.test.js` | `start control route returns an instance-scoped CDP URL` | `src/server.js` | Verifies `POST /_broker/start` response shape and manager delegation. |
+| `test/server.test.js` | proxy-forward and multi-instance route scenarios | `src/server.js` | Verifies `proxyForwardId` resolution, ambiguous root CDP rejection, instance-scoped CDP routing, and proxy-forward endpoints. |
 | `test/server.test.js` | `returns 503 for CDP discovery before Chrome is started` | `src/server.js` | Verifies standby discovery failure mode. |
-| `test/server.test.js` | `serves remote Playwright instructions over the broker endpoint` | `src/server.js` | Verifies `/_broker/instructions` returns Markdown integration instructions. |
+| `test/server.test.js` | `serves remote Playwright help over broker endpoints` | `src/server.js` | Verifies `/_broker/help` and `/_broker/instructions` return Markdown integration instructions. |
 | `test/server.test.js` | `serves a copyable Playwright broker client helper` | `src/server.js` | Verifies `/_broker/client.js` returns helper source. |
 
 Latest observed result:
 
 ```text
 npm test
-tests 18
-pass 18
+tests 35
+pass 35
 fail 0
 ```
 
 Coverage gaps:
 
-- No integration test with a fake Chrome HTTP server.
 - No WebSocket upgrade tunnel test.
 - No CLI process lifecycle test.
 - No real Chrome launch test.

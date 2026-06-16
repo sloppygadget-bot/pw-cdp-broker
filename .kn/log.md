@@ -1,5 +1,35 @@
 # Knowledge Base Log
 
+## 2026-06-16 00:30 UTC - implement multi-instance sessions and managed proxy forwards
+
+- Trigger: User requested multi-instance broker sessions, managed proxy port list, `/help`, tests, and `.kn` updates.
+- Scope: Multi-instance browser manager, proxy-forward registry, control API updates, broker help text, docs, tests, and KB.
+- Raw updated:
+  - `.kn/raw/codebase/modules/module-inventory.md`
+  - `.kn/raw/codebase/dependencies/import-graph.mmd`
+  - `.kn/raw/codebase/APIs/http-route-map.md`
+  - `.kn/raw/codebase/tests/unit-test-inventory.md`
+  - `.kn/raw/codebase/nfr/security-surface.md`
+  - `.kn/raw/codebase/nfr/observability-inventory.md`
+- Wiki updated:
+  - `.kn/wiki/architecture/system-overview.md`
+  - `.kn/wiki/architecture/module-boundaries.md`
+  - `.kn/wiki/testing/testing-strategy.md`
+  - `.kn/wiki/nfr/security.md`
+- FS updated:
+  - `.kn/fs/index.md`
+  - `.kn/fs/features/managed-proxy-forwards.md`
+  - `.kn/fs/features/playwright-backed-video-recording.md`
+  - `.kn/fs/features/remote-browser-lifecycle-control.md`
+- Tests updated:
+  - `test/browser-manager.test.js`
+  - `test/proxy-forwards.test.js`
+  - `test/server.test.js`
+- Notes:
+  - Multiple instances may run concurrently only when their resolved profile directories differ.
+  - `GET /_broker/help` is now the preferred remote Playwright guide; `/_broker/instructions` remains an alias.
+  - Playwright-backed persistent-context video recording is recorded as roadmap, not current scope.
+
 ## 2026-06-16 00:00 UTC - document standby browser lifecycle
 
 - Trigger: User requested standby broker lifecycle where remote Playwright can start Chrome with profile and proxy options.

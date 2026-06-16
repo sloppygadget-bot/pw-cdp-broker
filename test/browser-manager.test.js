@@ -80,3 +80,99 @@ test('stops the active Chrome instance', async () => {
   assert.equal(child.killed, true);
   assert.equal(manager.activeInstance(), undefined);
 });
+
+test('starts multiple Chrome instances with different profiles', async () => {
+  const children = [fakeChild(), fakeChild()];
+  const spawned = [];
+  const ports = [9333, 9334];
+  const manager = createBrowserManager({
+    chromeExecutable: '/bin/chrome',
+    spawnImpl: (file, args) => {
+      spawned.push({ file, args });
+      return children.shift();
+    },
+    getFreePortImpl: async () => ports.shift(),
+    waitForChromeImpl: async () => {},
+    quiet: true,
+  });
+
+  const first = await manager.start({ profile: 'work-okta' });
+  const second = await manager.start({ profile: 'customer-a', headless: true });
+
+  assert.notEqual(first.id, second.id);
+  assert.equal(manager.listInstances().length, 2);
+  assert.equal(first.chromePort, 9333);
+  assert.equal(second.chromePort, 9334);
+  assert.ok(spawned[1].args.includes('--headless=new'));
+  assert.throws(() => manager.activeInstance(), /Multiple Chrome instances/);
+});
+
+test('rejects concurrent instances using the same profile directory', async () => {
+  const manager = createBrowserManager({
+    chromeExecutable: '/bin/chrome',
+    spawnImpl: () => fakeChild(),
+    getFreePortImpl: async () => 9333,
+    waitForChromeImpl: async () => {},
+    quiet: true,
+  });
+
+  await manager.start({ profile: 'work-okta' });
+  await assert.rejects(() => manager.start({ profile: 'work-okta' }), /already in use/);
+});
+
+test('stops one Chrome instance without affecting another', async () => {
+  const firstChild = fakeChild();
+  const secondChild = fakeChild();
+  const children = [firstChild, secondChild];
+  const ports = [9333, 9334];
+  const manager = createBrowserManager({
+    chromeExecutable: '/bin/chrome',
+    spawnImpl: () => children.shift(),
+    getFreePortImpl: async () => ports.shift(),
+    waitForChromeImpl: async () => {},
+    quiet: true,
+  });
+
+  const first = await manager.start({ profile: 'work-okta' });
+  const second = await manager.start({ profile: 'customer-a' });
+
+  await manager.stop({ instanceId: first.id });
+
+  assert.equal(firstChild.killed, true);
+  assert.equal(secondChild.killed, false);
+  assert.deepEqual(manager.listInstances().map((instance) => instance.id), [second.id]);
+});
+
+test('requires instanceId when stopping among multiple Chrome instances', async () => {
+  const ports = [9333, 9334];
+  const manager = createBrowserManager({
+    chromeExecutable: '/bin/chrome',
+    spawnImpl: () => fakeChild(),
+    getFreePortImpl: async () => ports.shift(),
+    waitForChromeImpl: async () => {},
+    quiet: true,
+  });
+
+  await manager.start({ profile: 'work-okta' });
+  await manager.start({ profile: 'customer-a' });
+
+  await assert.rejects(() => manager.stop(), /instanceId is required/);
+});
+
+test('stops all Chrome instances', async () => {
+  const children = [fakeChild(), fakeChild()];
+  const ports = [9333, 9334];
+  const manager = createBrowserManager({
+    chromeExecutable: '/bin/chrome',
+    spawnImpl: () => children.shift(),
+    getFreePortImpl: async () => ports.shift(),
+    waitForChromeImpl: async () => {},
+    quiet: true,
+  });
+
+  await manager.start({ profile: 'work-okta' });
+  await manager.start({ profile: 'customer-a' });
+
+  assert.equal(await manager.stopAll(), 2);
+  assert.deepEqual(manager.listInstances(), []);
+});

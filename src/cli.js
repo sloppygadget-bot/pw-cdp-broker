@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createBrowserManager } from './browser-manager.js';
+import { createProxyForwardManager } from './proxy-forwards.js';
 import { createBrokerServer } from './server.js';
 import { findChromeExecutable } from './chrome.js';
 import { validateProfileName } from './profiles.js';
@@ -38,6 +39,8 @@ export async function main(argv) {
   const proxyServer =
     options.proxyServer ||
     (sshProxyForward ? `http://127.0.0.1:${sshProxyForward.localPort}` : undefined);
+  const sshControlPersist = options.sshControlPersist ?? DEFAULT_SSH_CONTROL_PERSIST;
+  const sshControlPath = options.ssh ? prepareSshControlPath() : undefined;
 
   if (defaultProfile) {
     validateProfileName(defaultProfile);
@@ -75,6 +78,12 @@ export async function main(argv) {
       if (!options.standby) void shutdown();
     },
   });
+  const proxyForwardManager = createProxyForwardManager({
+    sshTarget: options.ssh,
+    controlPersist: sshControlPersist,
+    controlPath: sshControlPath,
+    quiet: Boolean(options.quiet),
+  });
 
   const shutdown = async (signal) => {
     if (shuttingDown) return;
@@ -84,6 +93,7 @@ export async function main(argv) {
       await new Promise((resolve) => server.close(resolve));
     }
     await browserManager.stopAll();
+    proxyForwardManager.stopAll();
     for (const child of children) {
       if (!child.killed) child.kill('SIGTERM');
     }
@@ -102,6 +112,7 @@ export async function main(argv) {
 
   server = createBrokerServer({
     browserManager,
+    proxyForwardManager,
   });
 
   await new Promise((resolve, reject) => {
@@ -130,7 +141,8 @@ export async function main(argv) {
       target: options.ssh,
       localPort: brokerPort,
       remotePort: Number(options.sshRemotePort ?? brokerPort),
-      controlPersist: options.sshControlPersist ?? DEFAULT_SSH_CONTROL_PERSIST,
+      controlPersist: sshControlPersist,
+      controlPath: sshControlPath,
       proxyForward: sshProxyForward,
       quiet: Boolean(options.quiet),
     });
@@ -247,10 +259,22 @@ function assertPort(port, name) {
   }
 }
 
-function startSshTunnel({ target, localPort, remotePort, controlPersist, proxyForward, quiet }) {
-  assertPort(remotePort, '--ssh-remote-port');
+function prepareSshControlPath() {
   const controlDir = path.join(os.homedir(), '.pw-cdp-broker', 'ssh');
   fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+  return path.join(controlDir, '%C');
+}
+
+function startSshTunnel({
+  target,
+  localPort,
+  remotePort,
+  controlPersist,
+  controlPath,
+  proxyForward,
+  quiet,
+}) {
+  assertPort(remotePort, '--ssh-remote-port');
   const log = (...args) => {
     if (!quiet) console.log(...args);
   };
@@ -259,7 +283,7 @@ function startSshTunnel({ target, localPort, remotePort, controlPersist, proxyFo
     localPort,
     remotePort,
     controlPersist,
-    controlPath: path.join(controlDir, '%C'),
+    controlPath,
     proxyForward,
   });
 

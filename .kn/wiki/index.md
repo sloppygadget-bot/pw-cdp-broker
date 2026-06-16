@@ -37,7 +37,10 @@ confidence: high
 
 - [Feature Spec Index](../fs/index.md)
 - [Chrome-Compatible CDP Broker](../fs/features/chrome-compatible-cdp-broker.md)
+- [Managed Proxy Forwards](../fs/features/managed-proxy-forwards.md)
 - [Persistent Browser Profiles](../fs/features/persistent-browser-profiles.md)
+- [Playwright-Backed Video Recording](../fs/features/playwright-backed-video-recording.md)
+- [Remote Browser Lifecycle Control](../fs/features/remote-browser-lifecycle-control.md)
 - [SSH Reverse Tunnel Integration](../fs/integrations/ssh-reverse-tunnel.md)
 
 ## Sources

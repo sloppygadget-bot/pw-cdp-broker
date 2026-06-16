@@ -101,6 +101,94 @@ test('start control route returns an instance-scoped CDP URL', async () => {
   }
 });
 
+test('start control route resolves proxyForwardId to proxyServer', async () => {
+  const starts = [];
+  const server = createBrokerServer({
+    browserManager: {
+      activeInstance: () => undefined,
+      listInstances: () => [],
+      start: async (options) => {
+        starts.push(options);
+        return {
+          id: 'bkr_abc',
+          profile: 'work-okta',
+          chromeHost: '127.0.0.1',
+          chromePort: 9333,
+          proxyForwardId: options.proxyForwardId,
+          proxyServer: options.proxyServer,
+          pid: 123,
+          startedAt: '2026-06-16T00:00:00.000Z',
+        };
+      },
+    },
+    proxyForwardManager: {
+      get: () => ({
+        forwardId: 'pf_abc',
+        proxyServer: 'http://127.0.0.1:18899',
+      }),
+    },
+  });
+
+  const { port, close } = await listen(server);
+  try {
+    const response = await requestJson({
+      port,
+      method: 'POST',
+      path: '/_broker/start',
+      body: {
+        profile: 'work-okta',
+        proxyForwardId: 'pf_abc',
+        ignoreSslErrors: true,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(starts, [
+      {
+        profile: 'work-okta',
+        proxyForwardId: 'pf_abc',
+        ignoreSslErrors: true,
+        proxyServer: 'http://127.0.0.1:18899',
+      },
+    ]);
+    assert.equal(response.body.proxyForwardId, 'pf_abc');
+    assert.equal(response.body.proxyServer, 'http://127.0.0.1:18899');
+  } finally {
+    await close();
+  }
+});
+
+test('start control route rejects proxyServer with proxyForwardId', async () => {
+  const server = createBrokerServer({
+    browserManager: {
+      activeInstance: () => undefined,
+      listInstances: () => [],
+      start: async () => {
+        throw new Error('should not start');
+      },
+    },
+  });
+
+  const { port, close } = await listen(server);
+  try {
+    const response = await requestJson({
+      port,
+      method: 'POST',
+      path: '/_broker/start',
+      body: {
+        profile: 'work-okta',
+        proxyForwardId: 'pf_abc',
+        proxyServer: 'http://127.0.0.1:18899',
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body.error, /mutually exclusive/);
+  } finally {
+    await close();
+  }
+});
+
 test('returns 503 for CDP discovery before Chrome is started', async () => {
   const server = createBrokerServer({
     browserManager: {
@@ -125,7 +213,95 @@ test('returns 503 for CDP discovery before Chrome is started', async () => {
   }
 });
 
-test('serves remote Playwright instructions over the broker endpoint', async () => {
+test('returns 409 for root CDP discovery when multiple instances are running', async () => {
+  const error = new Error('Multiple Chrome instances are running; use an instance-scoped cdpUrl');
+  error.statusCode = 409;
+  const server = createBrokerServer({
+    browserManager: {
+      activeInstance: () => {
+        throw error;
+      },
+      listInstances: () => [
+        { id: 'bkr_a', chromeHost: '127.0.0.1', chromePort: 9333 },
+        { id: 'bkr_b', chromeHost: '127.0.0.1', chromePort: 9334 },
+      ],
+    },
+  });
+
+  const { port, close } = await listen(server);
+  try {
+    const response = await requestJson({
+      port,
+      method: 'GET',
+      path: '/json/version',
+    });
+
+    assert.equal(response.statusCode, 409);
+    assert.match(response.body.error, /Multiple Chrome instances/);
+  } finally {
+    await close();
+  }
+});
+
+test('routes instance-scoped CDP discovery to the selected Chrome instance', async () => {
+  const chromeA = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        webSocketDebuggerUrl: `ws://127.0.0.1:${chromeA.address().port}/devtools/browser/a`,
+      })
+    );
+  });
+  const chromeB = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        webSocketDebuggerUrl: `ws://127.0.0.1:${chromeB.address().port}/devtools/browser/b`,
+      })
+    );
+  });
+  const a = await listen(chromeA);
+  const b = await listen(chromeB);
+  const server = createBrokerServer({
+    browserManager: {
+      getInstance: (id) => ({
+        bkr_a: { id: 'bkr_a', chromeHost: '127.0.0.1', chromePort: a.port },
+        bkr_b: { id: 'bkr_b', chromeHost: '127.0.0.1', chromePort: b.port },
+      })[id],
+      activeInstance: () => undefined,
+      listInstances: () => [],
+    },
+  });
+
+  const broker = await listen(server);
+  try {
+    const responseA = await requestJson({
+      port: broker.port,
+      method: 'GET',
+      path: '/_broker/instances/bkr_a/json/version',
+    });
+    const responseB = await requestJson({
+      port: broker.port,
+      method: 'GET',
+      path: '/_broker/instances/bkr_b/json/version',
+    });
+
+    assert.equal(
+      responseA.body.webSocketDebuggerUrl,
+      `ws://127.0.0.1:${broker.port}/_broker/instances/bkr_a/devtools/browser/a`
+    );
+    assert.equal(
+      responseB.body.webSocketDebuggerUrl,
+      `ws://127.0.0.1:${broker.port}/_broker/instances/bkr_b/devtools/browser/b`
+    );
+  } finally {
+    await broker.close();
+    await a.close();
+    await b.close();
+  }
+});
+
+test('serves remote Playwright help over broker endpoints', async () => {
   const server = createBrokerServer({
     browserManager: {
       activeInstance: () => undefined,
@@ -135,16 +311,91 @@ test('serves remote Playwright instructions over the broker endpoint', async () 
 
   const { port, close } = await listen(server);
   try {
-    const response = await requestText({
+    const help = await requestText({
+      port,
+      method: 'GET',
+      path: '/_broker/help',
+    });
+    const instructions = await requestText({
       port,
       method: 'GET',
       path: '/_broker/instructions',
     });
 
-    assert.equal(response.statusCode, 200);
-    assert.match(response.headers['content-type'], /text\/markdown/);
-    assert.match(response.body, /POST \/_broker\/start|_broker\/start/);
-    assert.match(response.body, /connectOverCDP\(start\.cdpUrl\)/);
+    assert.equal(help.statusCode, 200);
+    assert.match(help.headers['content-type'], /text\/markdown/);
+    assert.match(help.body, new RegExp(`http://127\\.0\\.0\\.1:${port}`));
+    assert.match(help.body, /POST \/_broker\/start|_broker\/start/);
+    assert.match(help.body, /proxyForwardId/);
+    assert.match(help.body, /connectOverCDP\(start\.cdpUrl\)/);
+    assert.equal(instructions.body, help.body);
+  } finally {
+    await close();
+  }
+});
+
+test('serves proxy forward lifecycle endpoints', async () => {
+  const creates = [];
+  const deletes = [];
+  const server = createBrokerServer({
+    browserManager: {
+      activeInstance: () => undefined,
+      listInstances: () => [{ id: 'bkr_1', proxyForwardId: 'pf_in_use' }],
+    },
+    proxyForwardManager: {
+      create: async (options) => {
+        creates.push(options);
+        return {
+          forwardId: 'pf_abc',
+          remotePort: options.remotePort,
+          localPort: 18899,
+          proxyServer: 'http://127.0.0.1:18899',
+          createdAt: '2026-06-16T00:00:00.000Z',
+          inUseBy: [],
+        };
+      },
+      list: (instances) => [
+        {
+          forwardId: 'pf_in_use',
+          remotePort: 8899,
+          localPort: 18899,
+          proxyServer: 'http://127.0.0.1:18899',
+          createdAt: '2026-06-16T00:00:00.000Z',
+          inUseBy: instances.map((instance) => instance.id),
+        },
+      ],
+      delete: (forwardId, instances) => {
+        deletes.push({ forwardId, instances });
+        return { deleted: true, forwardId };
+      },
+    },
+  });
+
+  const { port, close } = await listen(server);
+  try {
+    const create = await requestJson({
+      port,
+      method: 'POST',
+      path: '/_broker/proxy-forwards',
+      body: { name: 'whistle', remotePort: 8899 },
+    });
+    const list = await requestJson({
+      port,
+      method: 'GET',
+      path: '/_broker/proxy-forwards',
+    });
+    const deleted = await requestJson({
+      port,
+      method: 'DELETE',
+      path: '/_broker/proxy-forwards/pf_abc',
+    });
+
+    assert.equal(create.statusCode, 200);
+    assert.deepEqual(creates, [{ name: 'whistle', remotePort: 8899 }]);
+    assert.equal(create.body.proxyServer, 'http://127.0.0.1:18899');
+    assert.equal(list.body.forwards[0].inUseBy[0], 'bkr_1');
+    assert.equal(deleted.statusCode, 200);
+    assert.deepEqual(deletes[0].forwardId, 'pf_abc');
   } finally {
     await close();
   }
@@ -168,8 +419,10 @@ test('serves a copyable Playwright broker client helper', async () => {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.headers['content-type'], /text\/javascript/);
+    assert.match(response.body, new RegExp(`brokerUrl = 'http://127\\.0\\.0\\.1:${port}'`));
     assert.match(response.body, /export async function connectViaBroker/);
     assert.match(response.body, /chromium\.connectOverCDP\(instance\.cdpUrl\)/);
+    assert.match(response.body, /proxyForwardId/);
   } finally {
     await close();
   }

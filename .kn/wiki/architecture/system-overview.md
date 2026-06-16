@@ -19,10 +19,15 @@ visible Chrome session for MFA and test monitoring workflows.
 `pw-cdp-broker` is a local Node.js CLI. It can launch Chrome immediately with a
 persistent user data directory and a private remote debugging port, or run in
 standby mode and wait for a remote `/_broker/start` request that supplies the
-profile and launch-time proxy/TLS options. Remote Playwright connects to the
-broker with `chromium.connectOverCDP(...)`. The broker proxies HTTP discovery to
-Chrome, rewrites debugger WebSocket URLs to point back at the broker, and
-tunnels WebSocket upgrade traffic to Chrome.
+profile and launch-time proxy/TLS/headless options. Multiple Chrome instances
+can run concurrently when they use different profile directories. Remote
+Playwright connects to the broker with `chromium.connectOverCDP(...)`. The
+broker proxies HTTP discovery to Chrome, rewrites debugger WebSocket URLs to
+point back at the broker, and tunnels WebSocket upgrade traffic to Chrome.
+
+The broker can also maintain SSH-backed proxy forwards. Remote clients create a
+forward with `/_broker/proxy-forwards`, then pass `proxyForwardId` to
+`/_broker/start`.
 
 When direct remote-to-local networking is unavailable, the CLI can spawn an
 OpenSSH reverse tunnel with `ControlPersist=24h`. SSH authentication remains
@@ -59,7 +64,7 @@ sequenceDiagram
   participant C as Local Chrome CDP
 
   B->>B: Listen without Chrome
-  R->>B: POST /_broker/start { profile, proxyServer }
+  R->>B: POST /_broker/start { profile, proxyForwardId }
   B->>C: Launch Chrome with requested profile/options
   B-->>R: { instanceId, cdpUrl }
   R->>B: connectOverCDP(cdpUrl)
@@ -70,14 +75,16 @@ sequenceDiagram
 | Path | Role | Notes |
 |---|---|---|
 | `src/cli.js` | Runtime orchestration | Parses CLI options, launches Chrome, starts broker, optionally starts SSH. |
-| `src/server.js` | CDP proxy | Rewrites discovery JSON and tunnels WebSocket upgrades. |
+| `src/server.js` | Control and CDP proxy | Serves lifecycle/proxy/help routes, rewrites discovery JSON, and tunnels WebSocket upgrades. |
 | `src/browser-manager.js` | Browser lifecycle | Starts/stops broker-owned Chrome instances and tracks instance metadata. |
+| `src/proxy-forwards.js` | Proxy forwards | Creates/lists/deletes SSH local forwards referenced by browser instances. |
 | `src/chrome.js` | Chrome process support | Builds launch args, finds Chrome, waits for CDP readiness. |
 | `src/profiles.js` | Profile policy | Maps safe profile names to persistent profile directories. |
 
 ## Related Feature Specs
 
 - [Chrome-Compatible CDP Broker](../../fs/features/chrome-compatible-cdp-broker.md)
+- [Managed Proxy Forwards](../../fs/features/managed-proxy-forwards.md)
 - [Persistent Browser Profiles](../../fs/features/persistent-browser-profiles.md)
 - [Remote Browser Lifecycle Control](../../fs/features/remote-browser-lifecycle-control.md)
 - [SSH Reverse Tunnel Integration](../../fs/integrations/ssh-reverse-tunnel.md)
@@ -86,6 +93,7 @@ sequenceDiagram
 
 - `test/server.test.js`
 - `test/browser-manager.test.js`
+- `test/proxy-forwards.test.js`
 - `test/cli.test.js`
 - `test/profiles.test.js`
 
@@ -100,6 +108,7 @@ sequenceDiagram
 - Code: `../../../src/cli.js`
 - Code: `../../../src/server.js`
 - Code: `../../../src/browser-manager.js`
+- Code: `../../../src/proxy-forwards.js`
 - Code: `../../../src/chrome.js`
 - Code: `../../../src/profiles.js`
 - Raw: `../../raw/codebase/modules/module-inventory.md`

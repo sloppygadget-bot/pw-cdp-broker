@@ -60,8 +60,10 @@ export async function connectViaBroker({
   brokerUrl = 'http://127.0.0.1:18080',
   profile,
   proxyServer,
+  proxyForwardId,
   proxyBypassList,
   ignoreSslErrors,
+  headless,
 } = {}) {
   const response = await fetch(`${brokerUrl}/_broker/start`, {
     method: 'POST',
@@ -69,8 +71,10 @@ export async function connectViaBroker({
     body: JSON.stringify({
       profile,
       proxyServer,
+      proxyForwardId,
       proxyBypassList,
       ignoreSslErrors,
+      headless,
     }),
   });
 
@@ -99,9 +103,12 @@ If the remote workspace cannot read this repository, fetch the same instructions
 from the running broker:
 
 ```bash
-curl http://127.0.0.1:18080/_broker/instructions
+curl http://127.0.0.1:18080/_broker/help
 curl http://127.0.0.1:18080/_broker/client.js
 ```
+
+`/_broker/instructions` remains available as a compatibility alias for
+`/_broker/help`.
 
 ## SSH Reverse Tunnel
 
@@ -190,6 +197,41 @@ const browser = await chromium.connectOverCDP('http://127.0.0.1:18080');
 
 For advanced Chrome proxy syntax, pass raw flags with `--chrome-arg`.
 
+When the proxy is on the remote SSH host and multiple broker-controlled
+instances need to use it, create a managed proxy forward through the broker API:
+
+```http
+POST /_broker/proxy-forwards
+Content-Type: application/json
+
+{
+  "name": "whistle",
+  "remotePort": 8899,
+  "localPort": 18899
+}
+```
+
+The broker returns a reusable `proxyForwardId` and `proxyServer`:
+
+```json
+{
+  "ok": true,
+  "forwardId": "pf_...",
+  "proxyServer": "http://127.0.0.1:18899"
+}
+```
+
+Use `proxyForwardId` when starting instances. Multiple instances may share one
+proxy forward:
+
+```json
+{
+  "profile": "work-okta",
+  "proxyForwardId": "pf_...",
+  "ignoreSslErrors": true
+}
+```
+
 ## Remote Playwright Lifecycle
 
 The broker owns the local browser process. Remote Playwright attaches to that
@@ -204,9 +246,10 @@ Content-Type: application/json
 
 {
   "profile": "work-okta",
-  "proxyServer": "http://127.0.0.1:18899",
+  "proxyForwardId": "pf_...",
   "proxyBypassList": "<-loopback>",
-  "ignoreSslErrors": true
+  "ignoreSslErrors": true,
+  "headless": false
 }
 ```
 
@@ -225,10 +268,32 @@ Use that `cdpUrl` with `chromium.connectOverCDP(...)`. If Chrome is not running,
 root CDP discovery such as `GET /json/version` returns `503` until
 `/_broker/start` succeeds.
 
+The broker can run multiple instances at once as long as they use different
+profile directories. Two active Chrome processes cannot share the same
+`--user-data-dir`; concurrent starts for the same profile are rejected with
+`409`.
+
+Root CDP paths are a compatibility shortcut for the single-instance case. When
+multiple instances are running, remote clients should use the returned
+instance-scoped `cdpUrl`.
+
 At the end of a test, `await browser.close()` on a CDP-connected browser
 disconnects that Playwright client and disposes its local `Browser` object. The
 broker and local browser stay running, so the next test process can call
 `connectOverCDP` again.
+
+Remote Playwright can capture screenshots from the connected instance:
+
+```ts
+await page.screenshot({ path: 'after-test.png', fullPage: true });
+```
+
+Video recording for broker-controlled persistent sessions is intentionally out
+of scope for now.
+
+Roadmap: a later Playwright-backed launch mode could let the broker create the
+persistent context with `recordVideo` enabled from the start, then expose
+broker-side video artifacts for remote retrieval.
 
 Stop the active browser instance:
 

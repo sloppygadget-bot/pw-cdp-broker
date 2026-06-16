@@ -20,11 +20,15 @@ instance; instance-scoped paths route by `instanceId`.
 |---|---|---|---|
 | `GET` | `/` | `createBrokerServer` | Returns JSON health/status. |
 | `GET` | `/healthz` | `createBrokerServer` | Returns JSON health/status. |
-| `GET` | `/_broker/instructions` | `handleControlRequest` | Returns Markdown instructions for remote Playwright agents. |
+| `GET` | `/_broker/help` | `handleControlRequest` | Returns Markdown help for remote Playwright agents. |
+| `GET` | `/_broker/instructions` | `handleControlRequest` | Compatibility alias for `/_broker/help`. |
 | `GET` | `/_broker/client.js` | `handleControlRequest` | Returns copyable JavaScript helper source for remote Playwright clients. |
-| `GET` | `/_broker/status` | `handleControlRequest` | Returns running state and active instance metadata. |
-| `POST` | `/_broker/start` | `handleControlRequest` | Starts Chrome through `browserManager.start()` and returns `{ instanceId, cdpUrl }`. |
-| `POST` | `/_broker/stop` | `handleControlRequest` | Stops the active Chrome instance, optionally matching `instanceId`. |
+| `GET` | `/_broker/status` | `handleControlRequest` | Returns running state, all instance metadata, and proxy-forward metadata. |
+| `POST` | `/_broker/start` | `handleControlRequest` | Starts Chrome through `browserManager.start()` and returns `{ instanceId, cdpUrl }`; accepts `proxyForwardId`. |
+| `POST` | `/_broker/stop` | `handleControlRequest` | Stops the requested Chrome instance; `instanceId` is required when more than one is running. |
+| `GET` | `/_broker/proxy-forwards` | `handleControlRequest` | Lists managed SSH proxy forwards. |
+| `POST` | `/_broker/proxy-forwards` | `handleControlRequest` | Creates an SSH local forward and returns `{ forwardId, proxyServer }`. |
+| `DELETE` | `/_broker/proxy-forwards/<id>` | `handleControlRequest` | Deletes an unused proxy forward. |
 | `GET` | `/json/version` | `proxyHttpRequest` | Proxies to Chrome and rewrites `webSocketDebuggerUrl`. |
 | `GET` | `/json` | `proxyHttpRequest` | Proxies to Chrome and rewrites debugger URLs in JSON payload. |
 | `GET` | `/json/list` | `proxyHttpRequest` | Proxies to Chrome and rewrites debugger URLs in JSON payload. |
@@ -37,5 +41,6 @@ instance; instance-scoped paths route by `instanceId`.
 | `Upgrade` | `/_broker/instances/<id>/devtools/browser/<id>` | `proxyUpgrade` | Routes WebSocket upgrade to the matching instance. |
 | `Upgrade` | `/_broker/instances/<id>/devtools/page/<id>` | `proxyUpgrade` | Routes page WebSocket upgrade to the matching instance. |
 
-Non-GET HTTP methods on CDP paths receive `405 Method Not Allowed`. CDP
-discovery returns `503` when no browser is running.
+Non-GET HTTP methods on CDP paths receive `405 Method Not Allowed`. Root CDP
+discovery returns `503` when no browser is running and `409` when multiple
+instances make root routing ambiguous.

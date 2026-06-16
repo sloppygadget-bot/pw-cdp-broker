@@ -11,15 +11,18 @@ flowchart TD
   bin["bin/pw-cdp-broker.js"] --> cli["src/cli.js"]
   cli --> server["src/server.js"]
   cli --> manager["src/browser-manager.js"]
+  cli --> proxyForwards["src/proxy-forwards.js"]
   cli --> chrome["src/chrome.js"]
   cli --> profiles["src/profiles.js"]
   manager --> chrome
   manager --> profiles
+  proxyForwards --> chrome
   profileTests["test/profiles.test.js"] --> profiles
   serverTests["test/server.test.js"] --> server
   managerTests["test/browser-manager.test.js"] --> manager
   chromeTests["test/chrome.test.js"] --> chrome
   cliTests["test/cli.test.js"] --> cli
+  proxyForwardTests["test/proxy-forwards.test.js"] --> proxyForwards
 ```
 
 External Node built-ins used:

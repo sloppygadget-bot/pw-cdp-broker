@@ -7,6 +7,7 @@ command: "manual observability scan"
 sources:
   - src/browser-manager.js
   - src/cli.js
+  - src/proxy-forwards.js
   - src/server.js
 ---
 
@@ -20,6 +21,7 @@ Current operator-visible signals:
 - Standby mode prints the broker start endpoint.
 - Immediate mode prints both root and instance-scoped Playwright connection hints.
 - SSH tunnel target, remote/local mapping, and ControlPersist value are printed.
+- Managed proxy-forward creation prints the local-to-remote port mapping unless quiet mode is enabled.
 - Unexpected Chrome and SSH exits are logged to stderr.
 - HTTP proxy failures return JSON error responses with status-specific codes.
 
