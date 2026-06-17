@@ -1,5 +1,19 @@
 # Knowledge Base Log
 
+## 2026-06-17 00:00 UTC - add remote persistent profile clear API
+
+- Trigger: User requested an API that lets remote Playwright clear persistent data.
+- Scope: Broker-managed profile clear endpoint, safety checks, tests, README, and KB.
+- Raw updated:
+  - `.kn/raw/codebase/APIs/http-route-map.md`
+  - `.kn/raw/codebase/tests/unit-test-inventory.md`
+  - `.kn/raw/codebase/nfr/security-surface.md`
+- Tests updated:
+  - `test/browser-manager.test.js`
+  - `test/server.test.js`
+- Notes:
+  - `POST /_broker/profiles/clear` clears a named broker profile only when no active instance uses it.
+
 ## 2026-06-16 00:30 UTC - implement multi-instance sessions and managed proxy forwards
 
 - Trigger: User requested multi-instance broker sessions, managed proxy port list, `/help`, tests, and `.kn` updates.

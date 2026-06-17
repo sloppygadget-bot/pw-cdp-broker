@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { createBrowserManager } from '../src/browser-manager.js';
@@ -175,4 +178,44 @@ test('stops all Chrome instances', async () => {
 
   assert.equal(await manager.stopAll(), 2);
   assert.deepEqual(manager.listInstances(), []);
+});
+
+test('clears broker-managed persistent profile data', () => {
+  const previousHome = process.env.HOME;
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-cdp-broker-home-'));
+  process.env.HOME = home;
+  try {
+    const profileDir = path.join(home, '.pw-cdp-broker', 'profiles', 'work-okta');
+    fs.mkdirSync(profileDir, { recursive: true });
+    fs.writeFileSync(path.join(profileDir, 'cookie-store'), 'secret');
+    const manager = createBrowserManager({
+      chromeExecutable: '/bin/chrome',
+      spawnImpl: () => fakeChild(),
+      waitForChromeImpl: async () => {},
+      quiet: true,
+    });
+
+    const result = manager.clearProfileData({ profile: 'work-okta' });
+
+    assert.equal(result.cleared, true);
+    assert.equal(result.profile, 'work-okta');
+    assert.equal(fs.existsSync(profileDir), false);
+  } finally {
+    process.env.HOME = previousHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('rejects clearing a profile used by an active Chrome instance', async () => {
+  const manager = createBrowserManager({
+    chromeExecutable: '/bin/chrome',
+    spawnImpl: () => fakeChild(),
+    getFreePortImpl: async () => 9333,
+    waitForChromeImpl: async () => {},
+    quiet: true,
+  });
+
+  await manager.start({ profile: 'work-okta' });
+
+  assert.throws(() => manager.clearProfileData({ profile: 'work-okta' }), /currently in use/);
 });

@@ -163,6 +163,25 @@ class BrowserManager {
     return instances.length;
   }
 
+  clearProfileData({ profile } = {}) {
+    if (!profile) {
+      const error = new Error('profile is required');
+      error.statusCode = 400;
+      throw error;
+    }
+    validateProfileName(profile);
+    const userDataDir = path.resolve(profileDirForName(profile));
+    for (const instance of this.instances.values()) {
+      if (path.resolve(instance.userDataDir) === userDataDir) {
+        const error = new Error(`Profile is currently in use: ${profile}`);
+        error.statusCode = 409;
+        throw error;
+      }
+    }
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+    return { cleared: true, profile, userDataDir };
+  }
+
   buildLaunchOptions(options) {
     if (options.userDataDir) {
       const error = new Error('userDataDir cannot be set from remote start requests');

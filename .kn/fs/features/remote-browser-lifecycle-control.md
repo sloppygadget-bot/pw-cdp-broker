@@ -56,6 +56,7 @@ sequenceDiagram
 | `POST /_broker/start` | JSON launch options | `{ ok, instanceId, cdpUrl, profile }` | Starts Chrome unless the requested profile directory is already active. |
 | `GET /_broker/status` | none | `{ ok, running, instances, proxyForwards }` | Reports active instances and proxy-forward metadata. |
 | `POST /_broker/stop` | `{ instanceId }` when multiple instances run | `{ ok, stopped }` | Stops the requested instance. |
+| `POST /_broker/profiles/clear` | `{ profile }` | `{ ok, cleared, profile, userDataDir }` | Clears inactive broker-managed persistent profile data. |
 | `GET /_broker/help` | none | Markdown | Returns remote Playwright usage instructions. |
 | `GET /_broker/instances/<id>/json/version` | Chrome discovery | Chrome JSON with instance-scoped debugger URL | Playwright CDP discovery path. |
 | `WS /_broker/instances/<id>/devtools/...` | WebSocket upgrade | Raw tunnel to Chrome | Routes by `instanceId`. |
@@ -71,6 +72,8 @@ sequenceDiagram
 - A running Chrome instance cannot change proxy or TLS launch options; callers
   must stop/restart to change them.
 - Multiple running instances must not share the same profile directory.
+- Profile clear requests are limited to named broker-managed profiles and fail
+  while an instance is using the target profile directory.
 
 ## 7. Implementation Map
 

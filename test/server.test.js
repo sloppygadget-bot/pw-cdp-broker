@@ -326,6 +326,7 @@ test('serves remote Playwright help over broker endpoints', async () => {
     assert.match(help.headers['content-type'], /text\/markdown/);
     assert.match(help.body, new RegExp(`http://127\\.0\\.0\\.1:${port}`));
     assert.match(help.body, /POST \/_broker\/start|_broker\/start/);
+    assert.match(help.body, /_broker\/profiles\/clear/);
     assert.match(help.body, /proxyForwardId/);
     assert.match(help.body, /connectOverCDP\(start\.cdpUrl\)/);
     assert.equal(instructions.body, help.body);
@@ -396,6 +397,42 @@ test('serves proxy forward lifecycle endpoints', async () => {
     assert.equal(list.body.forwards[0].inUseBy[0], 'bkr_1');
     assert.equal(deleted.statusCode, 200);
     assert.deepEqual(deletes[0].forwardId, 'pf_abc');
+  } finally {
+    await close();
+  }
+});
+
+test('serves persistent profile clear endpoint', async () => {
+  const clears = [];
+  const server = createBrokerServer({
+    browserManager: {
+      activeInstance: () => undefined,
+      listInstances: () => [],
+      clearProfileData: (options) => {
+        clears.push(options);
+        return {
+          cleared: true,
+          profile: options.profile,
+          userDataDir: `/home/test/.pw-cdp-broker/profiles/${options.profile}`,
+        };
+      },
+    },
+  });
+
+  const { port, close } = await listen(server);
+  try {
+    const response = await requestJson({
+      port,
+      method: 'POST',
+      path: '/_broker/profiles/clear',
+      body: { profile: 'work-okta' },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(clears, [{ profile: 'work-okta' }]);
+    assert.equal(response.body.ok, true);
+    assert.equal(response.body.cleared, true);
+    assert.equal(response.body.profile, 'work-okta');
   } finally {
     await close();
   }

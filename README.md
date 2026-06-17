@@ -273,6 +273,20 @@ profile directories. Two active Chrome processes cannot share the same
 `--user-data-dir`; concurrent starts for the same profile are rejected with
 `409`.
 
+Clear a broker-managed persistent profile before starting a new instance:
+
+```http
+POST /_broker/profiles/clear
+Content-Type: application/json
+
+{
+  "profile": "work-okta"
+}
+```
+
+Only named broker profiles can be cleared through this API. The broker rejects
+clearing a profile while a running instance is using it.
+
 Root CDP paths are a compatibility shortcut for the single-instance case. When
 multiple instances are running, remote clients should use the returned
 instance-scoped `cdpUrl`.

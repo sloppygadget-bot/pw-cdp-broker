@@ -16,9 +16,11 @@ bound to loopback or reachable only through a trusted tunnel. Standby control
 endpoints can start and stop local Chrome, so unauthenticated use should be
 limited to localhost/SSH-trusted workflows. Proxy-forward endpoints can create
 local SSH forwards to the configured SSH target and should be treated as the
-same trust boundary. Named profiles are validated to prevent path traversal and
-are stored under broker-owned profile storage. SSH passwords are not handled by
-the broker; OpenSSH owns prompts and ControlPersist reuse.
+same trust boundary. The profile clear endpoint can delete broker-managed
+persistent profile data and is also trusted-local only. Named profiles are
+validated to prevent path traversal and are stored under broker-owned profile
+storage. SSH passwords are not handled by the broker; OpenSSH owns prompts and
+ControlPersist reuse.
 
 ## Current Controls
 
@@ -26,6 +28,7 @@ the broker; OpenSSH owns prompts and ControlPersist reuse.
 - Named profiles reject empty names, traversal separators, `.` and `..`.
 - Instance-scoped CDP URLs include a random instance ID for routing and stale-client safety.
 - Concurrent Chrome instances cannot share an active profile directory.
+- Profile clear rejects active profile directories.
 - SSH uses native `ssh` with `ControlMaster=auto` and `ControlPersist=24h`.
 - No npm dependencies reduce third-party package surface.
 
@@ -33,6 +36,7 @@ the broker; OpenSSH owns prompts and ControlPersist reuse.
 
 - No app-level broker authentication exists for lifecycle control endpoints.
 - No app-level broker authentication exists for proxy-forward endpoints.
+- No app-level broker authentication exists for profile clear endpoints.
 - `--host 0.0.0.0` can expose browser control to the network.
 - Persistent Chrome profiles contain sensitive cookies/session storage.
 - `--user-data-dir` accepts an explicit operator-provided path.

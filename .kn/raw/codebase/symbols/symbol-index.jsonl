@@ -5,7 +5,8 @@
 {"file":"src/browser-manager.js","kind":"method","name":"BrowserManager.start","line":70,"exported":false,"confidence":"high"}
 {"file":"src/browser-manager.js","kind":"method","name":"BrowserManager.stop","line":129,"exported":false,"confidence":"high"}
 {"file":"src/browser-manager.js","kind":"method","name":"BrowserManager.stopAll","line":154,"exported":false,"confidence":"high"}
-{"file":"src/browser-manager.js","kind":"function","name":"describeInstance","line":219,"exported":false,"confidence":"high"}
+{"file":"src/browser-manager.js","kind":"method","name":"BrowserManager.clearProfileData","line":166,"exported":false,"confidence":"high"}
+{"file":"src/browser-manager.js","kind":"function","name":"describeInstance","line":237,"exported":false,"confidence":"high"}
 {"file":"src/cli.js","kind":"function","name":"main","line":16,"exported":true,"confidence":"high"}
 {"file":"src/cli.js","kind":"function","name":"parseArgs","line":159,"exported":true,"confidence":"high"}
 {"file":"src/cli.js","kind":"function","name":"parseSshProxyForward","line":236,"exported":false,"confidence":"high"}

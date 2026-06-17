@@ -26,6 +26,7 @@ instance; instance-scoped paths route by `instanceId`.
 | `GET` | `/_broker/status` | `handleControlRequest` | Returns running state, all instance metadata, and proxy-forward metadata. |
 | `POST` | `/_broker/start` | `handleControlRequest` | Starts Chrome through `browserManager.start()` and returns `{ instanceId, cdpUrl }`; accepts `proxyForwardId`. |
 | `POST` | `/_broker/stop` | `handleControlRequest` | Stops the requested Chrome instance; `instanceId` is required when more than one is running. |
+| `POST` | `/_broker/profiles/clear` | `handleControlRequest` | Clears a named broker-managed persistent profile when no active instance uses it. |
 | `GET` | `/_broker/proxy-forwards` | `handleControlRequest` | Lists managed SSH proxy forwards. |
 | `POST` | `/_broker/proxy-forwards` | `handleControlRequest` | Creates an SSH local forward and returns `{ forwardId, proxyServer }`. |
 | `DELETE` | `/_broker/proxy-forwards/<id>` | `handleControlRequest` | Deletes an unused proxy forward. |

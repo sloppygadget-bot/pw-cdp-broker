@@ -132,6 +132,17 @@ async function handleControlRequest({ req, res, browserManager, proxyForwardMana
     return;
   }
 
+  if (req.url === '/_broker/profiles/clear' && req.method === 'POST') {
+    if (!browserManager?.clearProfileData) {
+      writeJson(res, 404, { ok: false, error: 'Profile lifecycle is not enabled' });
+      return;
+    }
+    const options = await readJsonBody(req);
+    const result = browserManager.clearProfileData(options);
+    writeJson(res, 200, { ok: true, ...result });
+    return;
+  }
+
   if (req.url === '/_broker/start' && req.method === 'POST') {
     if (!browserManager?.start) {
       writeJson(res, 404, { ok: false, error: 'Browser lifecycle is not enabled' });
@@ -449,6 +460,18 @@ const page = context.pages()[0] ?? await context.newPage();
 Remote Playwright can inspect DOM and capture screenshots through the connected
 page. Video recording for broker-controlled persistent sessions is not part of
 this helper.
+
+## Clear persistent profile data
+
+\`\`\`js
+await fetch('${brokerUrl}/_broker/profiles/clear', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ profile: 'work-okta' }),
+});
+\`\`\`
+
+The broker rejects clearing a profile while a running instance is using it.
 
 ## Managed remote proxy forward
 

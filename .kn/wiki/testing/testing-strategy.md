@@ -29,7 +29,7 @@ WebSocket upgrade tunnel test.
 | Profile validation | `test/profiles.test.js` | Verifies traversal-like names are rejected. |
 | Profile path mapping | `test/profiles.test.js` | Verifies named profiles live under `.pw-cdp-broker/profiles`. |
 | CDP URL rewriting | `test/server.test.js` | Verifies browser/page URLs and `wss` behavior. |
-| Lifecycle control | `test/browser-manager.test.js`, `test/server.test.js` | Verifies start/stop API shape, standby behavior, help endpoints, multi-instance routing, instance URL rewriting, and launch options. |
+| Lifecycle control | `test/browser-manager.test.js`, `test/server.test.js` | Verifies start/stop/clear-profile API shape, standby behavior, help endpoints, multi-instance routing, instance URL rewriting, and launch options. |
 | Proxy forwards | `test/proxy-forwards.test.js`, `test/server.test.js` | Verifies managed SSH forward create/list/delete, port conflicts, in-use protection, and `proxyForwardId` start resolution. |
 | CLI options | `test/cli.test.js`, `test/chrome.test.js` | Verifies proxy/TLS/standby parsing, SSH args, and Chrome arg construction. |
 

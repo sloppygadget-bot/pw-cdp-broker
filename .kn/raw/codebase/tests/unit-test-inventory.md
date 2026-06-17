@@ -21,6 +21,7 @@ sources:
 | `test/browser-manager.test.js` | `requires a profile when no default profile or user data dir is configured` | `src/browser-manager.js` | Verifies standby start requires a remote profile unless constrained by startup config. |
 | `test/browser-manager.test.js` | `stops the active Chrome instance` | `src/browser-manager.js` | Verifies instance-matched stop kills the child and clears active state. |
 | `test/browser-manager.test.js` | multi-instance scenarios | `src/browser-manager.js` | Verifies different profiles can run concurrently, same profile is rejected, one instance can stop independently, and `stopAll()` stops all instances. |
+| `test/browser-manager.test.js` | profile clear scenarios | `src/browser-manager.js` | Verifies broker-managed profile directories can be cleared and active profile dirs cannot be cleared. |
 | `test/chrome.test.js` | `adds proxy and SSL launch options before extra Chrome args` | `src/chrome.js` | Verifies launch-time proxy, bypass, and certificate flags. |
 | `test/cli.test.js` | `parses proxy and SSL options` | `src/cli.js` | Verifies proxy/TLS options are parsed. |
 | `test/cli.test.js` | `parses SSH proxy forwarding options` | `src/cli.js` | Verifies remote/local SSH proxy forward flags are parsed. |
@@ -35,6 +36,7 @@ sources:
 | `test/server.test.js` | `rewrites debugger urls under an instance-scoped broker path` | `src/server.js` | Verifies instance path is preserved in rewritten WebSocket URLs. |
 | `test/server.test.js` | `start control route returns an instance-scoped CDP URL` | `src/server.js` | Verifies `POST /_broker/start` response shape and manager delegation. |
 | `test/server.test.js` | proxy-forward and multi-instance route scenarios | `src/server.js` | Verifies `proxyForwardId` resolution, ambiguous root CDP rejection, instance-scoped CDP routing, and proxy-forward endpoints. |
+| `test/server.test.js` | `serves persistent profile clear endpoint` | `src/server.js` | Verifies `POST /_broker/profiles/clear` delegates to the browser manager. |
 | `test/server.test.js` | `returns 503 for CDP discovery before Chrome is started` | `src/server.js` | Verifies standby discovery failure mode. |
 | `test/server.test.js` | `serves remote Playwright help over broker endpoints` | `src/server.js` | Verifies `/_broker/help` and `/_broker/instructions` return Markdown integration instructions. |
 | `test/server.test.js` | `serves a copyable Playwright broker client helper` | `src/server.js` | Verifies `/_broker/client.js` returns helper source. |
@@ -43,8 +45,8 @@ Latest observed result:
 
 ```text
 npm test
-tests 35
-pass 35
+tests 38
+pass 38
 fail 0
 ```
 
