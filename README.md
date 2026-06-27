@@ -136,13 +136,12 @@ ssh -o ControlMaster=yes \
   user@code-server
 ```
 
-Then it starts the broker tunnel through that control master:
+Then it requests the broker tunnel through that control master:
 
 ```bash
-ssh -o ControlMaster=auto \
-  -o ControlPersist=24h \
-  -o ControlPath="$HOME/.pw-cdp-broker/ssh/%C" \
-  -N \
+ssh -o ControlPath="$HOME/.pw-cdp-broker/ssh/%C" \
+  -o ExitOnForwardFailure=yes \
+  -O forward \
   -R 18080:localhost:18080 \
   user@code-server
 ```

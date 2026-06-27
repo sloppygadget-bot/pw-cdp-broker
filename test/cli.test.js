@@ -60,13 +60,12 @@ test('parses standby option', () => {
   });
 });
 
-test('builds SSH args with reverse broker tunnel and local proxy forward', () => {
+test('builds SSH control forward args with reverse broker tunnel and local proxy forward', () => {
   assert.deepEqual(
     buildSshArgs({
       target: 'user@code-server',
       localPort: 18080,
       remotePort: 18080,
-      controlPersist: '24h',
       controlPath: '/tmp/control-%C',
       proxyForward: {
         localPort: 18899,
@@ -75,16 +74,36 @@ test('builds SSH args with reverse broker tunnel and local proxy forward', () =>
     }),
     [
       '-o',
-      'ControlMaster=auto',
+      'ControlPath=/tmp/control-%C',
       '-o',
-      'ControlPersist=24h',
+      'ExitOnForwardFailure=yes',
+      '-O',
+      'forward',
+      '-L',
+      '18899:localhost:8899',
+      '-R',
+      '18080:localhost:18080',
+      'user@code-server',
+    ]
+  );
+});
+
+test('builds SSH control cancel args', () => {
+  assert.deepEqual(
+    buildSshArgs({
+      target: 'user@code-server',
+      localPort: 18080,
+      remotePort: 18080,
+      controlPath: '/tmp/control-%C',
+      controlCommand: 'cancel',
+    }),
+    [
       '-o',
       'ControlPath=/tmp/control-%C',
       '-o',
       'ExitOnForwardFailure=yes',
-      '-L',
-      '18899:localhost:8899',
-      '-N',
+      '-O',
+      'cancel',
       '-R',
       '18080:localhost:18080',
       'user@code-server',

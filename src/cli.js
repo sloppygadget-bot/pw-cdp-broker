@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -288,19 +288,61 @@ function startSshTunnel({
     target,
     localPort,
     remotePort,
-    controlPersist,
     controlPath,
     proxyForward,
+    controlCommand: 'forward',
   });
 
-  log(`Starting SSH reverse tunnel: ${target} remote ${remotePort} -> local ${localPort}`);
+  log(`Requesting SSH reverse tunnel: ${target} remote ${remotePort} -> local ${localPort}`);
   if (proxyForward) {
     log(
-      `Starting SSH proxy forward: local ${proxyForward.localPort} -> remote ${proxyForward.remotePort}`
+      `Requesting SSH proxy forward: local ${proxyForward.localPort} -> remote ${proxyForward.remotePort}`
     );
   }
   log(`SSH ControlPersist: ${controlPersist}`);
-  return spawn('ssh', args, { stdio: 'inherit' });
+  const result = spawnSync('ssh', args, { stdio: 'inherit' });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(`ssh forward request exited with status ${result.status}`);
+  }
+  return makeSshForwardHandle({
+    target,
+    localPort,
+    remotePort,
+    controlPath,
+    proxyForward,
+    quiet,
+  });
+}
+
+function makeSshForwardHandle({ target, localPort, remotePort, controlPath, proxyForward, quiet }) {
+  return {
+    killed: false,
+    on() {
+      return this;
+    },
+    kill() {
+      if (this.killed) return;
+      this.killed = true;
+      const result = spawnSync(
+        'ssh',
+        buildSshArgs({
+          target,
+          localPort,
+          remotePort,
+          controlPath,
+          proxyForward,
+          controlCommand: 'cancel',
+        }),
+        { stdio: quiet ? 'ignore' : 'inherit' }
+      );
+      if (result.error && !quiet) {
+        console.error(`ssh forward cancel failed: ${result.error.message}`);
+      }
+    },
+  };
 }
 
 function ensureSshControlMaster({ target, controlPersist, controlPath, quiet }) {
@@ -393,26 +435,24 @@ export function buildSshArgs({
   target,
   localPort,
   remotePort,
-  controlPersist,
   controlPath,
   proxyForward,
+  controlCommand = 'forward',
 }) {
   const args = [
-    '-o',
-    'ControlMaster=auto',
-    '-o',
-    `ControlPersist=${controlPersist}`,
     '-o',
     `ControlPath=${controlPath}`,
     '-o',
     'ExitOnForwardFailure=yes',
+    '-O',
+    controlCommand,
   ];
 
   if (proxyForward) {
     args.push('-L', `${proxyForward.localPort}:localhost:${proxyForward.remotePort}`);
   }
 
-  args.push('-N', '-R', `${remotePort}:localhost:${localPort}`, target);
+  args.push('-R', `${remotePort}:localhost:${localPort}`, target);
   return args;
 }
 
