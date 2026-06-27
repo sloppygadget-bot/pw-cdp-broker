@@ -5,7 +5,10 @@ import {
   buildSshArgs,
   buildSshControlCheckArgs,
   buildSshControlMasterArgs,
+  buildSshConfigArgs,
+  parseSshConfigValue,
   parseArgs,
+  resolveSshControlPath,
 } from '../src/cli.js';
 
 test('parses proxy and SSL options', () => {
@@ -113,10 +116,44 @@ test('builds detached SSH control master args', () => {
       'ControlPersist=12h',
       '-o',
       'ControlPath=/tmp/control-%C',
-      '-M',
       '-N',
       '-f',
       'user@code-server',
     ]
+  );
+});
+
+test('builds SSH config inspection args', () => {
+  assert.deepEqual(
+    buildSshConfigArgs({
+      target: 'user@code-server',
+      controlPath: '/tmp/control-%C',
+    }),
+    ['-G', '-o', 'ControlPath=/tmp/control-%C', 'user@code-server']
+  );
+});
+
+test('parses SSH config values case-insensitively', () => {
+  assert.equal(
+    parseSshConfigValue('user test\ncontrolpath /tmp/control-abc\n', 'ControlPath'),
+    '/tmp/control-abc'
+  );
+});
+
+test('resolves expanded SSH control path', () => {
+  assert.equal(
+    resolveSshControlPath({
+      target: 'user@code-server',
+      controlPath: '/tmp/control-%C',
+      spawnSyncImpl: (file, args) => {
+        assert.equal(file, 'ssh');
+        assert.deepEqual(args, ['-G', '-o', 'ControlPath=/tmp/control-%C', 'user@code-server']);
+        return {
+          status: 0,
+          stdout: 'hostname code-server\ncontrolpath /tmp/control-abc\n',
+        };
+      },
+    }),
+    '/tmp/control-abc'
   );
 });

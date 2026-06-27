@@ -131,7 +131,6 @@ On first connect, the broker creates a detached OpenSSH control master:
 ssh -o ControlMaster=yes \
   -o ControlPersist=24h \
   -o ControlPath="$HOME/.pw-cdp-broker/ssh/%C" \
-  -M \
   -N \
   -f \
   user@code-server

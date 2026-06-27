@@ -314,6 +314,7 @@ function ensureSshControlMaster({ target, controlPersist, controlPath, quiet }) 
   if (check.error) {
     throw check.error;
   }
+  removeStaleSshControlSocket({ target, controlPath, quiet });
 
   if (!quiet) {
     console.log(`Starting SSH control master: ${target}`);
@@ -332,8 +333,37 @@ function ensureSshControlMaster({ target, controlPersist, controlPath, quiet }) 
   }
 }
 
+function removeStaleSshControlSocket({ target, controlPath, quiet }) {
+  const socketPath = resolveSshControlPath({ target, controlPath });
+  if (!socketPath || socketPath === 'none') return;
+
+  let stat;
+  try {
+    stat = fs.lstatSync(socketPath);
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw error;
+  }
+
+  if (!stat.isSocket()) return;
+  fs.unlinkSync(socketPath);
+  if (!quiet) console.log(`Removed stale SSH control socket: ${socketPath}`);
+}
+
+export function resolveSshControlPath({ target, controlPath, spawnSyncImpl = spawnSync }) {
+  const result = spawnSyncImpl('ssh', buildSshConfigArgs({ target, controlPath }), {
+    encoding: 'utf8',
+  });
+  if (result.error || result.status !== 0) return undefined;
+  return parseSshConfigValue(result.stdout, 'controlpath');
+}
+
 export function buildSshControlCheckArgs({ target, controlPath }) {
   return ['-o', `ControlPath=${controlPath}`, '-O', 'check', target];
+}
+
+export function buildSshConfigArgs({ target, controlPath }) {
+  return ['-G', '-o', `ControlPath=${controlPath}`, target];
 }
 
 export function buildSshControlMasterArgs({ target, controlPersist, controlPath }) {
@@ -344,11 +374,19 @@ export function buildSshControlMasterArgs({ target, controlPersist, controlPath 
     `ControlPersist=${controlPersist}`,
     '-o',
     `ControlPath=${controlPath}`,
-    '-M',
     '-N',
     '-f',
     target,
   ];
+}
+
+export function parseSshConfigValue(output, key) {
+  const prefix = `${key.toLowerCase()} `;
+  return output
+    .split('\n')
+    .find((line) => line.toLowerCase().startsWith(prefix))
+    ?.slice(prefix.length)
+    .trim();
 }
 
 export function buildSshArgs({
