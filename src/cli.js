@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -137,6 +137,12 @@ export async function main(argv) {
   }
 
   if (options.ssh) {
+    ensureSshControlMaster({
+      target: options.ssh,
+      controlPersist: sshControlPersist,
+      controlPath: sshControlPath,
+      quiet: Boolean(options.quiet),
+    });
     const ssh = startSshTunnel({
       target: options.ssh,
       localPort: brokerPort,
@@ -295,6 +301,54 @@ function startSshTunnel({
   }
   log(`SSH ControlPersist: ${controlPersist}`);
   return spawn('ssh', args, { stdio: 'inherit' });
+}
+
+function ensureSshControlMaster({ target, controlPersist, controlPath, quiet }) {
+  const check = spawnSync('ssh', buildSshControlCheckArgs({ target, controlPath }), {
+    stdio: 'ignore',
+  });
+  if (check.status === 0) {
+    if (!quiet) console.log(`SSH control master already active: ${target}`);
+    return;
+  }
+  if (check.error) {
+    throw check.error;
+  }
+
+  if (!quiet) {
+    console.log(`Starting SSH control master: ${target}`);
+    console.log(`SSH ControlPersist: ${controlPersist}`);
+  }
+  const master = spawnSync(
+    'ssh',
+    buildSshControlMasterArgs({ target, controlPersist, controlPath }),
+    { stdio: 'inherit' }
+  );
+  if (master.error) {
+    throw master.error;
+  }
+  if (master.status !== 0) {
+    throw new Error(`ssh control master exited with status ${master.status}`);
+  }
+}
+
+export function buildSshControlCheckArgs({ target, controlPath }) {
+  return ['-o', `ControlPath=${controlPath}`, '-O', 'check', target];
+}
+
+export function buildSshControlMasterArgs({ target, controlPersist, controlPath }) {
+  return [
+    '-o',
+    'ControlMaster=yes',
+    '-o',
+    `ControlPersist=${controlPersist}`,
+    '-o',
+    `ControlPath=${controlPath}`,
+    '-M',
+    '-N',
+    '-f',
+    target,
+  ];
 }
 
 export function buildSshArgs({

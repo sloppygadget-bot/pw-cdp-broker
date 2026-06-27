@@ -125,7 +125,19 @@ The broker can manage that tunnel and reuse OpenSSH authentication for 24 hours:
 node bin/pw-cdp-broker.js --profile work-okta --ssh user@code-server
 ```
 
-That starts:
+On first connect, the broker creates a detached OpenSSH control master:
+
+```bash
+ssh -o ControlMaster=yes \
+  -o ControlPersist=24h \
+  -o ControlPath="$HOME/.pw-cdp-broker/ssh/%C" \
+  -M \
+  -N \
+  -f \
+  user@code-server
+```
+
+Then it starts the broker tunnel through that control master:
 
 ```bash
 ssh -o ControlMaster=auto \

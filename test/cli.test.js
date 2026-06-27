@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildSshArgs, parseArgs } from '../src/cli.js';
+import {
+  buildSshArgs,
+  buildSshControlCheckArgs,
+  buildSshControlMasterArgs,
+  parseArgs,
+} from '../src/cli.js';
 
 test('parses proxy and SSL options', () => {
   assert.deepEqual(
@@ -79,6 +84,38 @@ test('builds SSH args with reverse broker tunnel and local proxy forward', () =>
       '-N',
       '-R',
       '18080:localhost:18080',
+      'user@code-server',
+    ]
+  );
+});
+
+test('builds SSH control master check args', () => {
+  assert.deepEqual(
+    buildSshControlCheckArgs({
+      target: 'user@code-server',
+      controlPath: '/tmp/control-%C',
+    }),
+    ['-o', 'ControlPath=/tmp/control-%C', '-O', 'check', 'user@code-server']
+  );
+});
+
+test('builds detached SSH control master args', () => {
+  assert.deepEqual(
+    buildSshControlMasterArgs({
+      target: 'user@code-server',
+      controlPersist: '12h',
+      controlPath: '/tmp/control-%C',
+    }),
+    [
+      '-o',
+      'ControlMaster=yes',
+      '-o',
+      'ControlPersist=12h',
+      '-o',
+      'ControlPath=/tmp/control-%C',
+      '-M',
+      '-N',
+      '-f',
       'user@code-server',
     ]
   );
